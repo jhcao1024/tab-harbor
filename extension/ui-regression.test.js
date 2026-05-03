@@ -182,7 +182,7 @@ test('footer credits point to the repo and JH Cao GitHub profile', () => {
   const indexHtml = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
   assert.match(
     indexHtml,
-    /class="footer-credit"[\s\S]*href="https:\/\/github\.com\/jhcao1024\/tab-harbor"[\s\S]*>Tab Harbor<\/a> by <a class="footer-credit-link" href="https:\/\/github\.com\/jhcao1024"[\s\S]*>JH Cao<\/a>/
+    /class="footer-credit"[\s\S]*href="https:\/\/github\.com\/jhcao1024\/tab-harbor"[\s\S]*>Portus<\/a> by <a class="footer-credit-link" href="https:\/\/github\.com\/jhcao1024"[\s\S]*>JH Cao<\/a>/
   );
 });
 

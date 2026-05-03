@@ -326,48 +326,6 @@ body.theme-tone-dark::before {
     transform 0.18s ease;
 }
 
-.quick-shortcut-bookmark {
-  position: absolute;
-  top: -10px;
-  left: 50%;
-  transform: translateX(-50%) translateY(2px) scale(0.92);
-  width: 18px;
-  height: 18px;
-  border: 1px solid color-mix(in srgb, var(--workspace-accent-border) 16%, var(--warm-gray) 84%);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--card-bg) calc(var(--custom-surface-opacity) + 82%), var(--paper) 18%);
-  color: var(--muted);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0;
-  pointer-events: none;
-  box-shadow: 0 3px 8px color-mix(in srgb, var(--ink) 6%, transparent);
-  transition:
-    opacity 0.18s ease,
-    color 0.18s ease,
-    background 0.18s ease,
-    border-color 0.18s ease,
-    box-shadow 0.18s ease,
-    transform 0.18s ease;
-  z-index: 5;
-}
-
-.quick-shortcut-card:hover .quick-shortcut-bookmark,
-.quick-shortcut-card:focus-within .quick-shortcut-bookmark {
-  opacity: 1;
-  pointer-events: auto;
-  transform: translateX(-50%) translateY(0) scale(1);
-}
-
-.quick-shortcut-bookmark:hover,
-.quick-shortcut-bookmark:focus-visible {
-  border-color: color-mix(in srgb, var(--workspace-accent-border) 38%, transparent);
-  background: color-mix(in srgb, var(--workspace-accent-soft) 58%, var(--card-bg) 42%);
-  color: var(--workspace-accent);
-  box-shadow: 0 7px 14px color-mix(in srgb, var(--workspace-accent) 12%, transparent);
-}
-
 .quick-shortcut-edit {
   position: absolute;
   top: -2px;
