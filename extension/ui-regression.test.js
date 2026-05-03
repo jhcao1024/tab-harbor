@@ -178,13 +178,16 @@ test('manifest keeps only permissions required by the shipped runtime', () => {
   assert.doesNotMatch(manifest, /"activeTab"/);
 });
 
-test('footer credits point to the repo and OO GitHub profile', () => {
-  const css = fs.readFileSync(path.join(__dirname, 'style.css'), 'utf8');
-
+test('footer credits point to the repo and JH Cao GitHub profile', () => {
+  const indexHtml = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
   assert.match(
-    html,
-    /class="footer-credit"[\s\S]*href="https:\/\/github\.com\/V-IOLE-T\/tab-harbor"[\s\S]*>Tab Harbor<\/a> by <a class="footer-credit-link" href="https:\/\/github\.com\/V-IOLE-T"[\s\S]*>OO<\/a>/
+    indexHtml,
+    /class="footer-credit"[\s\S]*href="https:\/\/github\.com\/jhcao1024\/tab-harbor"[\s\S]*>Tab Harbor<\/a> by <a class="footer-credit-link" href="https:\/\/github\.com\/jhcao1024"[\s\S]*>JH Cao<\/a>/
   );
+});
+
+test('footer styles are defined', () => {
+  const css = fs.readFileSync(path.join(__dirname, 'style.css'), 'utf8');
   assert.match(css, /\.footer-credit-link\s*\{/);
   assert.match(css, /\.footer-credit-link:hover,\s*\.footer-credit-link:focus-visible\s*\{/);
 });

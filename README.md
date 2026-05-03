@@ -1,94 +1,26 @@
-# Tab Harbor
+# Portus, A fork of [Tab Harbor](https://github.com/V-IOLE-T/tab-harbor) with bookmark support
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-**A calmer Chrome new tab dashboard for open tabs, quick links, saved reads, and lightweight todos.**
+**A fork of [Tab Harbor](https://github.com/V-IOLE-T/tab-harbor) with bookmark support.**
 
-Tab Harbor turns Chrome's new tab page into a place where you can keep working. You immediately see what is already open, which pages should be moved into read-later, and what still needs your attention.
+## Bookmark Support
 
-<p align="center">
-  <img src="assets/readme/feature-tabs.png" alt="Tab Harbor overview" width="760">
-</p>
+Portus integrates your browser bookmarks directly into the "Quiet Desk" workspace, providing a seamless way to access and organize your library without leaving your new tab.
 
-## ✨ Core Highlights
+- **Hierarchical Navigation**: Browse your entire bookmark library with a clean, folder-based view and intuitive breadcrumb trails.
+- **Drag & Drop Reordering**: Organize your bookmarks exactly how you want them by dragging items to new positions.
+- **Move to Folder**: Easily organize your library by dragging bookmarks or folders onto breadcrumbs or other folder chips to move them.
+- **Integrated Management**: Open bookmarks in new tabs or delete them (including entire folder trees) with a single click and safety confirmation.
+- **One-click Bookmarking**: Quickly save any Quick Link to your browser bookmarks with a single click from the dashboard.
+- **Design Consistent**: The bookmarks view follows the project's calm, editorial aesthetic, featuring theme-aware styling and smooth transitions.
 
-- **Tabs are automatically organized by domain.** Tab Harbor groups open pages by domain, and moves homepage-style tabs into a dedicated `Homepages` group, so you can quickly see what you are actually working on.
-- **You can still organize things around your own workflow.** When domain-based grouping is not enough, you can create manual groups, keep common quick links around, and jump back to the right section from the top icon rail.
-- **Read later and todos move into the drawer, separate from the main workspace, without needing another app.** You can search, restore, or archive them later instead of leaving everything hanging in the browser tab bar.
-- **It is not just a tab-cleaning tool.** Quick links, todos, open tabs, and saved reads all live in the same new tab page, so the next thing you need is usually right in front of you.
-- **It tries to make the workspace calmer without making the system heavier.** You can switch themes, tune transparency, set a custom background, and clean duplicate tabs with one click, while everything still stays in `chrome.storage.local` with no backend or account.
+## 💻 Installation
 
-## 🖼️ Feature Tour
-
-<table>
-  <tr>
-    <td width="33.33%" valign="top">
-      <strong>Unified tab management</strong><br><br>
-      <img src="assets/readme/feature-tabs.png" alt="Tabs" width="100%">
-    </td>
-    <td width="33.33%" valign="top">
-      <strong>Saved reads</strong><br><br>
-      <img src="assets/readme/feature-saved-drawer.png" alt="Saved reads drawer" width="100%">
-    </td>
-    <td width="33.33%" valign="top">
-      <strong>Todos and quick jumping</strong><br><br>
-      <img src="assets/readme/feature-todos.png" alt="Todos" width="100%">
-    </td>
-  </tr>
-</table>
-
-### Unified tab management
-
-Tab Harbor organizes tabs more like a workspace: **domain-based groups, manual groups, quick access links, and fast jumping from the top icon rail**. If you want to clean up the browser a bit more, you can **also remove duplicate tabs with one click**.
-
-### Saved reads
-
-Pages that are not for right now can be **moved into the side drawer, then searched, restored, or archived later**, instead of living forever in the browser tab bar.
-
-### Todos and quick jumping
-
-Tab Harbor also works as a tiny action layer: jot down todos, keep short descriptions, archive completed items, and jump back into the right group from the same page.
-
-### Theme switching
-
-When you want the page to feel more like your own workspace, you can **switch themes, tune transparency, and use a custom background image**.
-
-<table>
-  <tr>
-    <td><img src="assets/readme/theme-warm-neutral.png" alt="warm neutral" width="100%"></td>
-    <td><img src="assets/readme/theme-soft-green.png" alt="soft green" width="100%"></td>
-  </tr>
-  <tr>
-    <td><img src="assets/readme/theme-soft-clay.png" alt="soft clay" width="100%"></td>
-    <td><img src="assets/readme/theme-custom-background.png" alt="custom background" width="100%"></td>
-  </tr>
-</table>
-
-## 🌊 Why It Feels Different
-
-Most new tab pages try to be a search box, a wallpaper, or a speed dial. Tab Harbor is closer to a lightweight browser control room. It keeps the messy reality of browsing visible, but turns it into something calmer and more actionable.
-
-That also means it is intentionally lightweight. There is no backend, no sync account, and no extra app to open. It lives exactly where the browsing chaos already happens.
-
-## ⚡ Quick Use
-
-### Install with a coding agent
-
-1. Give your coding agent this repo:
-
-   ```text
-   https://github.com/V-IOLE-T/tab-harbor
-   ```
-
-2. Ask it to install the extension.
-3. Open a new tab in Chrome.
-
-### Install manually
-
-1. Clone this repo:
+1. Clone this branch:
 
    ```bash
-   git clone https://github.com/V-IOLE-T/tab-harbor.git
+   git clone -b feat/bookmark https://github.com/jhcao1024/tab-harbor
    ```
 
 2. Open `chrome://extensions`
@@ -108,10 +40,7 @@ If you publish this repo for other people, they get the code and assets, not you
 This is a Manifest V3 Chrome extension with a plain frontend stack and no build step required to use it. You can clone it, load it, and start using it without npm, without a dev server, and without standing up anything else.
 
 ## 🙏 Acknowledgements
-
-- Tab Harbor is built on top of Zara's open-source project [tab-out](https://github.com/zarazhangrui/tab-out), which is the upstream repository and the starting point for this project.
-- Thanks as well to the [Linux.do community](https://linux.do) for the ideas, feedback, and the kind of maker energy that helps projects like this keep evolving.
-
+- Portus is based on [Tab Harbor](https://github.com/V-IOLE-T/tab-harbor) with additional support for bookmarks.
 ## 📄 License
 
 MIT License

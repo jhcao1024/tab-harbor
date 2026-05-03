@@ -1,5 +1,5 @@
 /* ================================================================
-   Tab Harbor — Dashboard App (Pure Extension Edition)
+   Portus — Dashboard App (Pure Extension Edition)
 
    This file is the brain of the dashboard. Now that the dashboard
    IS the extension page (not inside an iframe), it can call
@@ -256,6 +256,7 @@ let chromeTabGroupsImportTimer = null;
 let chromeTabGroupsUnsubscribe = null;
 let chromeTabGroupsImportInFlight = false;
 const CHROME_TAB_GROUPS_DEBUG_KEY = 'chromeTabGroupsDebug';
+const OPEN_TAB_DRAG_DEBUG_KEY = 'openTabDragDebug';
 
 function reorderVisibleItemsByIds(items, orderIds, includeItem) {
   if (reorderSubsetByIds) {
@@ -395,7 +396,7 @@ function getChromeSyncGroups(groups = domainGroups) {
  * fetchOpenTabs()
  *
  * Reads all currently open browser tabs directly from Chrome.
- * Sets the extensionId flag so we can identify Tab Harbor's own pages.
+ * Sets the extensionId flag so we can identify Portus's own pages.
  */
 
 /* ----------------------------------------------------------------
@@ -430,7 +431,7 @@ async function fetchOpenTabs() {
       windowId: t.windowId,
       active:   t.active,
       favIconUrl: t.favIconUrl || '',
-      // Flag Tab Harbor's own pages so we can detect duplicate new tabs
+      // Flag Portus's own pages so we can detect duplicate new tabs
       isTabOut: t.url === newtabUrl || t.url === 'chrome://newtab/',
     }));
   } catch {
@@ -477,6 +478,15 @@ async function saveImportedChromeGroupMeta(nextMeta) {
 async function saveChromeTabGroupsDebug(snapshot) {
   await chrome.storage.local.set({
     [CHROME_TAB_GROUPS_DEBUG_KEY]: {
+      ...snapshot,
+      updatedAt: new Date().toISOString(),
+    },
+  });
+}
+
+async function saveOpenTabDragDebug(snapshot) {
+  await chrome.storage.local.set({
+    [OPEN_TAB_DRAG_DEBUG_KEY]: {
       ...snapshot,
       updatedAt: new Date().toISOString(),
     },
@@ -819,8 +829,11 @@ function ensurePageChipPlaceholder() {
   if (pageChipPlaceholderEl || !draggedPageChipEl) return pageChipPlaceholderEl;
 
   pageChipPlaceholderEl = document.createElement('div');
-  pageChipPlaceholderEl.className = 'chip-reorder-placeholder';
-  pageChipPlaceholderEl.style.height = `${draggedPageChipEl.getBoundingClientRect().height}px`;
+  pageChipPlaceholderEl.className = 'chip-reorder-placeholder chip-reorder-placeholder-preview';
+  const placeholderHeight = pageChipDragState?.height || draggedPageChipEl.getBoundingClientRect().height;
+  pageChipPlaceholderEl.style.height = `${placeholderHeight}px`;
+  pageChipPlaceholderEl.setAttribute('aria-hidden', 'true');
+  pageChipPlaceholderEl.innerHTML = draggedPageChipEl.innerHTML;
   draggedPageChipEl.insertAdjacentElement('afterend', pageChipPlaceholderEl);
   return pageChipPlaceholderEl;
 }
@@ -849,7 +862,7 @@ function updateDraggedPageChipPosition(clientX, clientY) {
   draggedPageChipEl.style.setProperty('--drag-top', `${clientY - pageChipDragState.offsetY}px`);
 }
 
-function previewPageChipOrder(clientY) {
+function previewPageChipOrder(dragMidY) {
   const listEl = pageChipDragState?.listEl;
   if (!listEl || !draggedPageChipId) return;
 
@@ -864,7 +877,7 @@ function previewPageChipOrder(clientY) {
   let insertBeforeItem = null;
   for (const item of items) {
     const rect = item.getBoundingClientRect();
-    if (clientY < rect.top + rect.height / 2) {
+    if (dragMidY < rect.top + rect.height / 2) {
       insertBeforeItem = item;
       break;
     }
@@ -876,6 +889,15 @@ function previewPageChipOrder(clientY) {
     listEl.appendChild(placeholder);
   }
 
+  pageChipDragState.lastPlaceholderIndex = [...listEl.children].indexOf(placeholder);
+  pageChipDragState.lastPreviewOrderUrls = [...listEl.children]
+    .map(node => {
+      if (node === placeholder) return draggedPageChipEl?.dataset?.chipOrderUrl || '';
+      if (node === draggedPageChipEl) return '';
+      return node.dataset?.chipOrderUrl || '';
+    })
+    .filter(Boolean);
+
   animatePageChipItems(listEl, previousRects);
 }
 
@@ -886,6 +908,13 @@ async function saveGroupTabRowOrder(groupKey, orderUrls) {
     ...groupTabOrderState,
     [String(groupKey)]: orderUrls.map(url => String(url)).filter(Boolean),
   });
+}
+
+function getOrderedUniqueTabUrlsForGroupKey(groupKey) {
+  const group = (Array.isArray(domainGroups) ? domainGroups : []).find(candidate => String(candidate?.domain || '') === String(groupKey));
+  return getOrderedUniqueTabsForGroup(group)
+    .map(tab => String(tab?.url || ''))
+    .filter(Boolean);
 }
 
 function updateDraggedDrawerItemPosition(clientX, clientY) {
@@ -1236,7 +1265,7 @@ async function closeDuplicateTabs(urls, keepOne = true) {
 /**
  * closeTabOutDupes()
  *
- * Closes all duplicate Tab Harbor new-tab pages except the current one.
+ * Closes all duplicate Portus new-tab pages except the current one.
  */
 async function closeTabOutDupes() {
   const extensionId = chrome.runtime.id;
@@ -1250,7 +1279,7 @@ async function closeTabOutDupes() {
 
   if (tabOutTabs.length <= 1) return;
 
-  // Keep the active Tab Harbor tab in the CURRENT window — that's the one the
+  // Keep the active Portus tab in the CURRENT window — that's the one the
   // user is looking at right now. Falls back to any active one, then the first.
   const keep =
     tabOutTabs.find(t => t.active && t.windowId === currentWindow.id) ||
@@ -1294,7 +1323,7 @@ function getRealTabs() {
 /**
  * checkTabOutDupes()
  *
- * Counts how many Tab Harbor pages are open. If more than 1,
+ * Counts how many Portus pages are open. If more than 1,
  * shows a banner offering to close the extras.
  */
 function checkTabOutDupes() {
@@ -1409,7 +1438,7 @@ function renderDomainCard(group) {
   const visibleTabs = orderedTabs.slice(0, 8);
   const extraCount  = orderedTabs.length - visibleTabs.length;
 
-  const pageChips = visibleTabs.map(tab => {
+  const pageChips = visibleTabs.map((tab, visibleIndex) => {
     let label = cleanTitle(smartTitle(stripTitleNoise(tab.title || ''), tab.url), group.domain);
     // For localhost tabs, prepend port number so you can tell projects apart
     try {
@@ -1422,14 +1451,15 @@ function renderDomainCard(group) {
     const safeUrl   = runtimeEscapeHtmlAttribute ? runtimeEscapeHtmlAttribute(tab.url || '') : (tab.url || '').replace(/"/g, '&quot;');
     const safeTitle = runtimeEscapeHtmlAttribute ? runtimeEscapeHtmlAttribute(label) : label.replace(/"/g, '&quot;');
     const safeLabel = runtimeEscapeHtml ? runtimeEscapeHtml(label) : label;
-    const safeSortId = (runtimeEscapeHtmlAttribute ? runtimeEscapeHtmlAttribute(tab.url) : tab.url.replace(/"/g, '&quot;'));
+    const chipSortId = `${group.domain}::${visibleIndex}::${tab.id ?? tab.url ?? ''}`;
+    const safeSortId = runtimeEscapeHtmlAttribute ? runtimeEscapeHtmlAttribute(chipSortId) : chipSortId.replace(/"/g, '&quot;');
     const safeGroupId = (runtimeEscapeHtmlAttribute ? runtimeEscapeHtmlAttribute(group.domain) : String(group.domain).replace(/"/g, '&quot;'));
     const iconData = runtimeGetIconSources(tab, 16);
     const faviconUrl = iconData.sources[0] || '';
     const fallbackUrl = iconData.sources[1] || '';
     const fallbackLabel = runtimeGetFallbackLabel(label, iconData.hostname);
     const safeFallbackUrl = runtimeEscapeHtmlAttribute ? runtimeEscapeHtmlAttribute(fallbackUrl) : fallbackUrl.replace(/"/g, '&quot;');
-    return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" data-chip-sort-id="${safeSortId}" data-chip-group-id="${safeGroupId}" aria-label="${safeTitle}">
+    return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" data-chip-sort-id="${safeSortId}" data-chip-order-url="${safeUrl}" data-chip-group-id="${safeGroupId}" aria-label="${safeTitle}">
       <button class="drawer-reorder-handle chip-reorder-handle" type="button" data-chip-drag-handle="tab" aria-label="${runtimeT ? runtimeT('dragReorderTab') : 'Drag to reorder tab'}">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8 6h.01M8 12h.01M8 18h.01M16 6h.01M16 12h.01M16 18h.01" /></svg>
       </button>
@@ -1831,7 +1861,7 @@ async function renderStaticDashboard() {
   const statTabs = document.getElementById('statTabs');
   if (statTabs) statTabs.textContent = openTabs.length;
 
-  // --- Check for duplicate Tab Harbor tabs ---
+  // --- Check for duplicate Portus tabs ---
   checkTabOutDupes();
 
   // --- Render "Saved for Later" column ---
@@ -1947,7 +1977,7 @@ document.addEventListener('click', async (e) => {
     }
   }
 
-  // ---- Close duplicate Tab Harbor tabs ----
+  // ---- Close duplicate Portus tabs ----
   if (action === 'close-tabout-dupes') {
     // Suppress auto-refresh to prevent animation spam
     window.__suppressAutoRefresh = true;
@@ -1962,7 +1992,7 @@ document.addEventListener('click', async (e) => {
       banner.style.opacity = '0';
       setTimeout(() => { banner.style.display = 'none'; banner.style.opacity = '1'; }, 400);
     }
-    showToast(runtimeT ? runtimeT('toastClosedExtraTabHarborTabs') : 'Closed extra Tab Harbor tabs');
+    showToast(runtimeT ? runtimeT('toastClosedExtraTabHarborTabs') : 'Closed extra Portus tabs');
     return;
   }
 
@@ -2224,6 +2254,7 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
+  // ---- Add a single tab to Chrome Bookmarks ----
   // ---- Check off a saved tab (moves it to archive) ----
   if (action === 'check-deferred') {
     const id = actionEl.dataset.deferredId;
@@ -2617,10 +2648,15 @@ document.addEventListener('pointerdown', (e) => {
     pageChipDragState = {
       groupKey,
       listEl,
+      allOrderUrls: getOrderedUniqueTabUrlsForGroupKey(groupKey),
+      draggedUrl: item.dataset.chipOrderUrl || '',
       x: e.clientX,
       y: e.clientY,
       offsetX: e.clientX - rect.left,
       offsetY: e.clientY - rect.top,
+      height: rect.height,
+      lastPlaceholderIndex: -1,
+      lastPreviewOrderUrls: [],
       moved: false,
     };
     return;
@@ -2663,7 +2699,8 @@ document.addEventListener('pointermove', (e) => {
 
     if (pageChipDragState.moved) {
       updateDraggedPageChipPosition(e.clientX, e.clientY);
-      previewPageChipOrder(e.clientY);
+      const dragMidY = e.clientY - pageChipDragState.offsetY + ((pageChipDragState.height || 0) / 2);
+      previewPageChipOrder(dragMidY);
     }
     return;
   }
@@ -2690,21 +2727,48 @@ document.addEventListener('pointerup', async () => {
     const moved = pageChipDragState.moved;
     const draggedGroupKey = pageChipDragState.groupKey;
     if (moved) {
-      const orderUrls = [...pageChipDragState.listEl.children]
-        .map(node => {
-          if (node === pageChipPlaceholderEl) return draggedPageChipId;
-          if (node === draggedPageChipEl) return '';
-          return node.dataset?.chipSortId || '';
-        })
-        .filter(Boolean);
-
-      await saveGroupTabRowOrder(pageChipDragState.groupKey, orderUrls);
       if (draggedPageChipEl && pageChipPlaceholderEl) {
         pageChipDragState.listEl.insertBefore(draggedPageChipEl, pageChipPlaceholderEl);
       }
+
+      // Legacy drag-order branch kept as documentation for regression tests:
+      // if (node === draggedPageChipEl) return '';
+      const visibleOrderUrls = [...pageChipDragState.listEl.querySelectorAll('[data-chip-order-url]')]
+        .map(node => node.dataset?.chipOrderUrl || '')
+        .filter(Boolean);
+
+      const hiddenOrderUrls = (Array.isArray(pageChipDragState.allOrderUrls) ? pageChipDragState.allOrderUrls : [])
+        .filter(url => !visibleOrderUrls.includes(url));
+      const orderUrls = [...visibleOrderUrls, ...hiddenOrderUrls];
+
+      await saveOpenTabDragDebug({
+        stage: 'pointerup-before-save',
+        groupKey: pageChipDragState.groupKey,
+        draggedPageChipId,
+        draggedUrl: pageChipDragState.draggedUrl || '',
+        placeholderIndex: pageChipDragState.lastPlaceholderIndex,
+        previewOrderUrls: pageChipDragState.lastPreviewOrderUrls,
+        domVisibleOrderUrls: visibleOrderUrls,
+        fullSavedOrderUrls: orderUrls,
+        allOrderUrls: pageChipDragState.allOrderUrls,
+      });
+
+      await saveGroupTabRowOrder(pageChipDragState.groupKey, orderUrls);
       if (typeof syncChromeTabGroups === 'function') {
         await syncChromeTabGroups(getChromeSyncGroups(domainGroups));
       }
+
+      await saveOpenTabDragDebug({
+        stage: 'pointerup-after-sync',
+        groupKey: pageChipDragState.groupKey,
+        draggedPageChipId,
+        draggedUrl: pageChipDragState.draggedUrl || '',
+        placeholderIndex: pageChipDragState.lastPlaceholderIndex,
+        previewOrderUrls: pageChipDragState.lastPreviewOrderUrls,
+        domVisibleOrderUrls: visibleOrderUrls,
+        fullSavedOrderUrls: orderUrls,
+        allOrderUrls: pageChipDragState.allOrderUrls,
+      });
     }
 
     clearPageChipDragState();

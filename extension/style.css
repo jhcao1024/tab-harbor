@@ -35,6 +35,14 @@
   --floating-border-opacity: clamp(30%, calc(var(--custom-border-opacity) + 18%), 64%);
   --panel-surface-opacity: 92%;
   --panel-card-opacity: clamp(74%, calc(var(--custom-surface-opacity) + 48%), 94%);
+  --workspace-panel-radius: 20px;
+  --workspace-panel-padding: 22px;
+  --workspace-panel-border: 1px solid color-mix(in srgb, var(--workspace-accent-border) calc(var(--custom-border-opacity) + 14%), var(--warm-gray) 30%);
+  --workspace-panel-bg: color-mix(in srgb, var(--card-bg) calc(var(--custom-surface-opacity) + 76%), transparent);
+  --workspace-panel-bg-strong: color-mix(in srgb, var(--card-bg) var(--panel-card-opacity), transparent);
+  --workspace-panel-shadow: 0 20px 40px color-mix(in srgb, var(--workspace-accent) 12%, transparent);
+  --workspace-panel-shadow-hover: 0 24px 46px color-mix(in srgb, var(--workspace-accent) 16%, transparent);
+  --workspace-divider: color-mix(in srgb, var(--workspace-accent-border) 18%, var(--warm-gray) 82%);
   --drawer-trigger-surface: color-mix(in srgb, var(--card-bg) 94%, var(--paper) 6%);
   --drawer-trigger-surface-hover: color-mix(in srgb, var(--card-bg) 88%, var(--workspace-accent-soft) 12%);
   --drawer-trigger-border: color-mix(in srgb, var(--warm-gray) 64%, var(--workspace-accent-border) 36%);
@@ -110,12 +118,15 @@ body.theme-tone-dark::before {
   justify-content: stretch;
   align-items: flex-start;
   margin-bottom: 0;
-  padding: 8px 0 0;
-  border: none;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
+  padding: var(--workspace-panel-padding);
+  border: var(--workspace-panel-border);
+  border-radius: var(--workspace-panel-radius);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--workspace-accent-soft) 22%, transparent), transparent 28%),
+    var(--workspace-panel-bg);
+  box-shadow: var(--workspace-panel-shadow);
   text-align: left;
+  backdrop-filter: blur(10px);
 }
 
 .header-left {
@@ -178,6 +189,7 @@ body.theme-tone-dark::before {
 
 .header-search {
   margin-top: 14px;
+  margin-bottom: 32px;
   width: 100%;
   align-self: stretch;
 }
@@ -236,7 +248,7 @@ body.theme-tone-dark::before {
 }
 
 .quick-tabs {
-  margin-top: 14px;
+  margin-top: 10px;
   width: 100%;
   align-self: stretch;
 }
@@ -314,6 +326,48 @@ body.theme-tone-dark::before {
     transform 0.18s ease;
 }
 
+.quick-shortcut-bookmark {
+  position: absolute;
+  top: -10px;
+  left: 50%;
+  transform: translateX(-50%) translateY(2px) scale(0.92);
+  width: 18px;
+  height: 18px;
+  border: 1px solid color-mix(in srgb, var(--workspace-accent-border) 16%, var(--warm-gray) 84%);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--card-bg) calc(var(--custom-surface-opacity) + 82%), var(--paper) 18%);
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  box-shadow: 0 3px 8px color-mix(in srgb, var(--ink) 6%, transparent);
+  transition:
+    opacity 0.18s ease,
+    color 0.18s ease,
+    background 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
+  z-index: 5;
+}
+
+.quick-shortcut-card:hover .quick-shortcut-bookmark,
+.quick-shortcut-card:focus-within .quick-shortcut-bookmark {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(-50%) translateY(0) scale(1);
+}
+
+.quick-shortcut-bookmark:hover,
+.quick-shortcut-bookmark:focus-visible {
+  border-color: color-mix(in srgb, var(--workspace-accent-border) 38%, transparent);
+  background: color-mix(in srgb, var(--workspace-accent-soft) 58%, var(--card-bg) 42%);
+  color: var(--workspace-accent);
+  box-shadow: 0 7px 14px color-mix(in srgb, var(--workspace-accent) 12%, transparent);
+}
+
 .quick-shortcut-edit {
   position: absolute;
   top: -2px;
@@ -389,7 +443,8 @@ body.theme-tone-dark::before {
   justify-content: center;
   border-radius: 12px;
   border: none;
-  background: color-mix(in srgb, var(--card-bg) calc(var(--custom-surface-opacity) + 24%), transparent);
+  background: color-mix(in srgb, var(--workspace-accent-soft) 42%, var(--card-bg) 58%);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--workspace-accent-border) 12%, transparent);
   flex-shrink: 0;
   transition: background 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
 }
@@ -1100,9 +1155,10 @@ body.theme-tone-dark .deferred-shell {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
   margin-top: 0;
   flex-wrap: wrap;
+  width: 100%; /* Ensure full width for lines */
 }
 
 .section-header h2 {
@@ -1118,7 +1174,7 @@ body.theme-tone-dark .deferred-shell {
 .section-line {
   flex: 1;
   height: 1px;
-  background: var(--warm-gray);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--workspace-accent-border) 54%, transparent), transparent);
 }
 
 .section-count {
@@ -1329,8 +1385,9 @@ body.group-dragging .group-nav-button {
 
 .mission-card {
   background: color-mix(in srgb, var(--card-bg) calc(var(--custom-surface-opacity) + 68%), transparent);
-  border: 1px solid color-mix(in srgb, var(--warm-gray) calc(var(--custom-border-opacity) + 56%), var(--workspace-accent-border) 26%);
-  border-radius: 16px;
+  background: var(--workspace-panel-bg);
+  border: var(--workspace-panel-border);
+  border-radius: 18px;
   padding: 14px 16px;
   display: flex;
   flex-direction: column;
@@ -1341,7 +1398,7 @@ body.group-dragging .group-nav-button {
   overflow: visible;
   break-inside: avoid;
   margin-bottom: 0;
-  box-shadow: 0 14px 28px color-mix(in srgb, var(--workspace-accent) 6%, transparent);
+  box-shadow: 0 14px 28px color-mix(in srgb, var(--workspace-accent) 8%, transparent);
 }
 
 /* Colored top border instead of side bar for grid cards */
@@ -1360,7 +1417,7 @@ body.group-dragging .group-nav-button {
 .mission-card.has-neutral-bar::before { background: var(--warm-gray); }
 
 .mission-card:hover {
-  box-shadow: 0 16px 30px color-mix(in srgb, var(--workspace-accent) 12%, transparent);
+  box-shadow: 0 18px 34px color-mix(in srgb, var(--workspace-accent) 14%, transparent);
   transform: translateY(-1px);
 }
 
@@ -1489,15 +1546,16 @@ body.group-dragging .group-nav-button {
   font-size: 13px;
   color: var(--ink);
   background: transparent;
-  padding: 8px 2px;
-  border-radius: 0;
-  border: none;
-  border-bottom: 1px solid rgba(154, 145, 138, 0.12);
+  padding: 9px 4px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  border-bottom: 1px solid var(--workspace-divider);
   position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
   line-height: 1.4;
+  transition: background 0.16s ease, border-color 0.16s ease;
 }
 
 .page-chip > .chip-reorder-handle {
@@ -1508,6 +1566,11 @@ body.group-dragging .group-nav-button {
 .page-chip:last-child,
 .page-chip-overflow {
   border-bottom: none;
+}
+
+.page-chip:hover {
+  background: color-mix(in srgb, var(--workspace-accent-soft) 18%, transparent);
+  border-color: color-mix(in srgb, var(--workspace-accent-border) 16%, transparent);
 }
 
 /* Favicon */
@@ -1883,14 +1946,17 @@ body.group-dragging .group-nav-button {
 }
 
 .shortcut-editor-form {
-  border: 1px solid color-mix(in srgb, var(--workspace-accent-border) calc(var(--custom-border-opacity) + 10%), var(--warm-gray) 30%);
-  border-radius: 20px;
-  background: color-mix(in srgb, var(--card-bg) var(--panel-card-opacity), transparent);
-  box-shadow: 0 20px 42px color-mix(in srgb, var(--workspace-accent) 14%, transparent);
+  border: var(--workspace-panel-border);
+  border-radius: var(--workspace-panel-radius);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--workspace-accent-soft) 22%, transparent), transparent 26%),
+    var(--workspace-panel-bg-strong);
+  box-shadow: var(--workspace-panel-shadow-hover);
   padding: 18px 18px 18px 18px;
   display: flex;
   flex-direction: column;
   gap: 14px;
+  backdrop-filter: blur(12px);
 }
 
 .shortcut-editor-header {
@@ -1966,7 +2032,7 @@ body.group-dragging .group-nav-button {
   min-height: 40px;
   border-radius: 12px;
   border: 1px solid color-mix(in srgb, var(--workspace-accent-border) 26%, var(--warm-gray) 74%);
-  background: color-mix(in srgb, var(--card-bg) calc(var(--custom-surface-opacity) + 74%), transparent);
+  background: color-mix(in srgb, var(--workspace-accent-soft) 16%, var(--card-bg) 84%);
   color: var(--ink);
   font: inherit;
   padding: 0 12px;
@@ -2208,13 +2274,15 @@ body.group-dragging .group-nav-button {
 /* ---- Footer ---- */
 footer {
   margin-top: 48px;
-  padding-top: 20px;
-  border-top: 1px solid var(--warm-gray);
+  padding: 22px 24px 0;
+  border-top: 1px solid var(--workspace-divider);
   display: flex;
   justify-content: space-between;
   align-items: flex-end;
   gap: 16px;
   flex-wrap: wrap;
+  background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--workspace-accent-soft) 20%, transparent));
+  border-radius: 18px 18px 0 0;
 }
 
 .footer-stats {
@@ -2520,6 +2588,78 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
 .dashboard-columns .page-header {
   grid-column: 2;
   grid-row: 1;
+}
+
+.dashboard-rail {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  min-width: 0;
+  width: 100%;
+  padding: 0;
+}
+
+.dashboard-columns .page-header {
+  grid-column: auto;
+  grid-row: auto;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+/* Position Bookmarks below the header in the right column */
+#bookmarks-view {
+  min-width: 0;
+  width: 100%;
+  margin-top: 28px;
+}
+
+#bookmarks-view .active-section {
+  padding: 0;
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+#bookmarks-view .section-header {
+  margin-bottom: 12px;
+  padding-top: 24px;
+  border-top: none;
+}
+
+.header-search {
+  margin-top: 14px;
+  margin-bottom: 28px;
+  width: 100%;
+  align-self: stretch;
+}
+
+.page-header .section-header {
+  width: 100%;
+  margin-top: 10px;
+}
+
+#bookmarks-view .mission-card {
+  width: 100%;
+  margin-bottom: 0;
+  cursor: default; /* integrated card shouldn't show hand cursor */
+  background: var(--workspace-panel-bg);
+  padding-top: 8px;
+}
+
+#bookmarks-view .mission-content {
+  padding: 0;
+}
+
+#bookmarks-view .mission-top {
+  display: flex;
+  margin-bottom: 12px;
+  align-items: center;
 }
 
 .drawer-trigger-stack {
@@ -2945,6 +3085,7 @@ body.page-chip-list-dragging .chip-reorder-handle {
   border-radius: 12px;
   background: rgba(255, 253, 249, 0.96);
   box-shadow: 0 18px 34px rgba(26, 22, 19, 0.16);
+  opacity: 0.38;
 }
 
 .chip-reorder-placeholder {
@@ -2952,6 +3093,23 @@ body.page-chip-list-dragging .chip-reorder-handle {
   border-radius: 12px;
   background: rgba(248, 245, 240, 0.72);
   margin: 4px 0;
+}
+
+.chip-reorder-placeholder-preview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 4px;
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--workspace-accent) 26%, rgba(154, 145, 138, 0.28));
+  background: color-mix(in srgb, var(--workspace-accent-soft) 32%, rgba(248, 245, 240, 0.92));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--workspace-accent-border) 32%, transparent);
+  pointer-events: none;
+}
+
+.chip-reorder-placeholder-preview .chip-actions,
+.chip-reorder-placeholder-preview .chip-reorder-handle {
+  opacity: 0.55;
 }
 
 .deferred-item.is-dragging,
@@ -3423,6 +3581,7 @@ body.page-chip-list-dragging .chip-reorder-handle {
   flex-direction: column;
   overflow: hidden;
   z-index: 109;
+  backdrop-filter: blur(10px);
 }
 
 .tab-picker-header {
@@ -3737,3 +3896,19 @@ body.page-chip-list-dragging .chip-reorder-handle {
     transform: none !important;
   }
 }
+
+/* ---- Bookmarks View Refinements ---- */
+#bookmarks-view .mission-pages {
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+#bookmarks-view .page-chip {
+  width: 100%;
+  margin: 0;
+}
+
+
+/* ---- End of file ---- */

@@ -1,13 +1,18 @@
 {
   "manifest_version": 3,
-  "name": "Tab Harbor",
-  "version": "1.0.1",
-  "description": "A new tab dashboard for organizing open tabs, quick links, todos, and saved reads in one calm workspace.",
-  "permissions": ["tabs", "storage", "search", "clipboardRead", "tabGroups"],
+  "name": "Portus",
+  "version": "1.1.0",
+  "description": "A new tab dashboard for organizing open tabs, quick links, todos, and bookmarks in one calm workspace.",
+  "permissions": ["tabs", "storage", "search", "clipboardRead", "tabGroups", "bookmarks", "favicon", "topSites", "fontSettings", "sessions"],
+  "optional_host_permissions": ["file:///"],
   "chrome_url_overrides": { "newtab": "index.html" },
+  "options_ui": {
+    "page": "index.html?options",
+    "open_in_tab": true
+  },
   "background": { "service_worker": "background.js" },
   "action": {
-    "default_title": "Tab Harbor",
+    "default_title": "Portus",
     "default_popup": "popup/popup.html",
     "default_icon": {
       "16": "icons/icon16.png",

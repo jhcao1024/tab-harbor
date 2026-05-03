@@ -14,7 +14,7 @@ const {
 
 async function initializeApp() {
   if (!appMountDashboardRuntime) {
-    throw new Error('Tab Harbor dashboard runtime is unavailable');
+    throw new Error('Portus dashboard runtime is unavailable');
   }
 
   if (appConfigReady && typeof appConfigReady.then === 'function') {

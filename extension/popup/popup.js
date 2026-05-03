@@ -78,6 +78,11 @@ function stripTitleNoise(title) {
   title = title.replace(/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g, '');
   title = title.replace(/\s+on X:\s*/, ': ');
   title = title.replace(/\s*\/\s*X\s*$/, '');
+  title = title.replace(/\s+[|\-–—]\s*$/, '');
+  const shaped = title.split(/\s+(?:\||[-–—])\s+/).map(part => part.trim()).filter(Boolean);
+  if (shaped.length > 1) {
+    return shaped[0];
+  }
   return title.trim();
 }
 
@@ -149,7 +154,7 @@ function smartTitle(title, url) {
     }
   }
 
-  return title || url;
+  return title || '';
 }
 
 function getTabHostname(tab) {
@@ -340,7 +345,7 @@ async function loadPopupState() {
 }
 
 function buildPopupTabGroups() {
-  const { openTabs, sessionGroups, groupOrder } = popupState;
+  const { openTabs, sessionGroups, groupOrder, tabGroups } = popupState;
 
   const sessionGroupMap = Object.fromEntries(
     sessionGroups.groups.map(group => [
@@ -350,12 +355,33 @@ function buildPopupTabGroups() {
   );
 
   const groupMap = {};
+  const chromeGroupMap = new Map(
+    (Array.isArray(tabGroups) ? tabGroups : [])
+      .filter(group => group && group.id != null)
+      .map(group => [
+        Number(group.id),
+        {
+          domain: `__chrome_group__:${group.id}`,
+          label: group.title || 'Group',
+          tabs: [],
+          kind: 'chrome-group',
+          color: group.color || '',
+          chromeGroupId: Number(group.id),
+        },
+      ])
+  );
   const landingTabs = [];
 
   for (const tab of openTabs) {
     const assignedGroupId = sessionGroups.assignments[String(tab.id)];
     if (assignedGroupId && sessionGroupMap[assignedGroupId]) {
       sessionGroupMap[assignedGroupId].tabs.push(tab);
+      continue;
+    }
+
+    const chromeGroup = chromeGroupMap.get(Number(tab.groupId));
+    if (chromeGroup) {
+      chromeGroup.tabs.push(tab);
       continue;
     }
 
@@ -396,6 +422,7 @@ function buildPopupTabGroups() {
   }
 
   const sessionGroupsList = Object.values(sessionGroupMap).filter(g => g.tabs.length > 0);
+  const chromeGroupsList = [...chromeGroupMap.values()].filter(g => g.tabs.length > 0);
   const automaticGroups = Object.values(groupMap);
 
   const sortedAutomatic = automaticGroups.sort((a, b) => {
@@ -412,7 +439,7 @@ function buildPopupTabGroups() {
   const orderedManual = applyOrderFn ? applyOrderFn(sessionGroupsList, groupOrder) : sessionGroupsList;
   const orderedAuto = applyOrderFn ? applyOrderFn(sortedAutomatic, groupOrder) : sortedAutomatic;
 
-  return [...orderedManual, ...orderedAuto];
+  return [...orderedManual, ...chromeGroupsList, ...orderedAuto];
 }
 
 function renderPopupShortcuts() {

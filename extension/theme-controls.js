@@ -1243,6 +1243,9 @@ function renderQuickShortcutCard(shortcut) {
         </span>
         <span class="quick-shortcut-label">${safeLabel}</span>
       </button>
+      <button class="quick-shortcut-bookmark" type="button" data-action="add-to-bookmarks" data-tab-url="${safeUrl}" data-tab-title="${safeAriaLabel}" title="${themeT ? themeT('addToBookmarks') : 'Add to bookmarks'}">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5Z" /></svg>
+      </button>
       <button class="quick-shortcut-edit" type="button" data-action="edit-quick-shortcut" data-shortcut-id="${safeId}" aria-label="${themeT ? themeT('editQuickTab') : 'Edit quick tab'}">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a2.25 2.25 0 1 1 3.182 3.182L10.582 17.13a4.5 4.5 0 0 1-1.897 1.13L6 19l.74-2.685a4.5 4.5 0 0 1 1.13-1.897L16.862 4.487ZM19.5 7.125 16.875 4.5" /></svg>
       </button>
@@ -1753,8 +1756,34 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
-  if (action === 'open-quick-shortcut') {
+  if (action === 'add-to-bookmarks') {
     e.stopImmediatePropagation();
+    const tabUrl = actionEl.dataset.tabUrl;
+    const tabTitle = actionEl.dataset.tabTitle || tabUrl;
+    if (!tabUrl) return;
+
+    try {
+      chrome.bookmarks.create({
+        parentId: '1',
+        title: tabTitle,
+        url: tabUrl
+      }, () => {
+        if (chrome.runtime.lastError) {
+           showToast('Failed to bookmark');
+        } else {
+           showToast(themeT ? themeT('toastBookmarked') : 'Added to bookmarks');
+           if (globalThis.TabHarborBookmarksRuntime && typeof globalThis.TabHarborBookmarksRuntime.render === 'function') {
+             globalThis.TabHarborBookmarksRuntime.render();
+           }
+        }
+      });
+    } catch (err) {
+      console.error('[Portus] Quick Shortcut Bookmark error:', err);
+    }
+    return;
+  }
+
+  if (action === 'open-quick-shortcut') {    e.stopImmediatePropagation();
     if (Date.now() < quickShortcutSuppressClickUntil) return;
     const url = actionEl.dataset.shortcutUrl;
     if (!url) return;
