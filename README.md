@@ -1,8 +1,6 @@
-# Portus, A fork of [Tab Harbor](https://github.com/V-IOLE-T/tab-harbor) with bookmark support
+# Portus – A fork of [Tab Harbor](https://github.com/V-IOLE-T/tab-harbor) with bookmark support
 
 [English](README.md) | [简体中文](README.zh-CN.md)
-
-**A fork of [Tab Harbor](https://github.com/V-IOLE-T/tab-harbor) with bookmark support.**
 
 ## Bookmark Support
 

@@ -1,8 +1,6 @@
-# Portus，支持书签管理的 [Tab Harbor](https://github.com/V-IOLE-T/tab-harbor) 分叉版本
+# Portus: 支持书签管理的 [Tab Harbor](https://github.com/V-IOLE-T/tab-harbor) 分叉版本
 
 [English](README.md) | [简体中文](README.zh-CN.md)
-
-**支持书签管理的 [Tab Harbor](https://github.com/V-IOLE-T/tab-harbor) 分叉版本。**
 
 Portus 将你的 Chrome 新标签页转变为一个冷静、有序的“安静桌面”工作区。它将打开的标签页、手动分组、快捷链接、稍后阅读、轻量待办和集成书签功能结合在一个本地优先的界面中。
 
