@@ -18,7 +18,7 @@ async function updateBadge() {
 // ─── Event listeners ──────────────────────────────────────────────────────────
 
 // Notify Tab Harbor pages when tabs change so they can refresh
-async function notifyTabHarborPages() {
+async function notifyTabHarborPages(eventMeta = {}) {
   try {
     // Find all Tab Harbor dashboard pages
     const extensionId = chrome.runtime.id;
@@ -41,7 +41,11 @@ async function notifyTabHarborPages() {
 
     for (const tab of dashboardTabs) {
       try {
-        await chrome.tabs.sendMessage(tab.id, { action: 'tabs-changed' });
+        await chrome.tabs.sendMessage(tab.id, {
+          action: 'tabs-changed',
+          source: eventMeta.source || 'tabs.changed',
+          triggerTabId: eventMeta.triggerTabId ?? null,
+        });
       } catch (err) {
         // Tab might be closed or not ready, ignore
         console.warn(`[tab-harbor bg] Failed to notify tab ${tab.id}:`, err.message);
@@ -63,21 +67,21 @@ chrome.runtime.onStartup.addListener(() => {
 });
 
 // Update badge and notify Tab Harbor pages whenever a tab is opened
-chrome.tabs.onCreated.addListener(() => {
+chrome.tabs.onCreated.addListener((tab) => {
   updateBadge();
-  notifyTabHarborPages();
+  notifyTabHarborPages({ source: 'tabs.onCreated', triggerTabId: tab?.id });
 });
 
 // Update badge and notify Tab Harbor pages whenever a tab is closed
-chrome.tabs.onRemoved.addListener(() => {
+chrome.tabs.onRemoved.addListener((tabId) => {
   updateBadge();
-  notifyTabHarborPages();
+  notifyTabHarborPages({ source: 'tabs.onRemoved', triggerTabId: tabId });
 });
 
 // Update badge and notify Tab Harbor pages when a tab's URL changes (e.g. navigating to/from chrome://)
-chrome.tabs.onUpdated.addListener(() => {
+chrome.tabs.onUpdated.addListener((tabId) => {
   updateBadge();
-  notifyTabHarborPages();
+  notifyTabHarborPages({ source: 'tabs.onUpdated', triggerTabId: tabId });
 });
 
 // ─── Initial run ─────────────────────────────────────────────────────────────

@@ -20,6 +20,7 @@ const {
 } = globalThis.TabOutListOrder || {};
 
 let themeMenuOpen = false;
+let themeMenuActiveTab = 'appearance';
 let shortcutEditorState = {
   open: false,
   mode: 'create',
@@ -564,6 +565,7 @@ function renderThemeMenu() {
 
   trigger.setAttribute('aria-expanded', String(themeMenuOpen));
   panel.hidden = !themeMenuOpen;
+  const activeThemeMenuTab = themeMenuActiveTab === 'features' ? 'features' : 'appearance';
   transparencyRange.value = String(themePreferences.surfaceOpacity);
   transparencyValue.textContent = `${themePreferences.surfaceOpacity}%`;
   uiScaleRange.value = String(themePreferences.uiScale);
@@ -604,6 +606,16 @@ function renderThemeMenu() {
     </button>
   `;
   }).join('');
+
+  panel.querySelectorAll('[data-theme-menu-panel]').forEach(item => {
+    const isActive = item.dataset.themeMenuPanel === activeThemeMenuTab;
+    item.hidden = !isActive;
+  });
+  panel.querySelectorAll('[data-theme-menu-tab]').forEach(item => {
+    const isActive = item.dataset.themeMenuTab === activeThemeMenuTab;
+    item.classList.toggle('is-active', isActive);
+    item.setAttribute('aria-selected', String(isActive));
+  });
 }
 
 async function getQuickShortcuts() {

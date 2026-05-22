@@ -142,6 +142,8 @@ let chromeTabGroupsImportTimer = null;
 let chromeTabGroupsUnsubscribe = null;
 let chromeTabGroupsImportInFlight = false;
 let suppressChromeTabGroupsImportUntil = 0;
+let currentDashboardTabId = null;
+let dashboardStartupTabChangeIgnoreUntil = 0;
 const ENTRY_ANIMATIONS_CLASS = 'entry-animations-enabled';
 let entryAnimationsTimer = null;
 const CHROME_TAB_GROUPS_DEBUG_KEY = 'chromeTabGroupsDebug';
@@ -680,6 +682,13 @@ function refreshHitokotoInBackground(textEl, fromEl) {
       const hitokotoEl = document.getElementById('hitokoto');
       if (hitokotoEl) hitokotoEl.style.display = '';
     }
+  }).catch(() => { /* silently fail */ });
+}
+
+function warmHitokotoCacheInBackground() {
+  fetchHitokoto().then(data => {
+    if (typeof themePreferences !== 'undefined' && themePreferences.hitokotoEnabled === false) return;
+    addHitokotoToCache(data);
   }).catch(() => { /* silently fail */ });
 }
 
@@ -2342,17 +2351,17 @@ function buildOverflowChips(hiddenTabs, urlCounts = {}) {
       <span class="chip-favicon chip-favicon-fallback"${faviconUrl ? ' style="display:none"' : ''}>${fallbackLabel}</span>
       <span class="chip-text">${safeLabel}</span>${dupeTag}
       <div class="chip-actions">
+        ${sleepControlEnabled && !tab.active ? `
+        <button class="chip-action chip-discard" type="button" data-action="discard-tab" data-tab-id="${tab.id}" aria-label="${runtimeT ? runtimeT('discardTab') : 'Sleep tab'}" data-tooltip="${runtimeT ? runtimeT('discardTab') : 'Sleep tab'}">
+          ${ICONS.moon}
+        </button>
+        ` : ''}
         <button class="chip-action chip-session-save" type="button" data-action="save-single-tab-session" data-tab-id="${safeTabId}" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" aria-label="${runtimeT ? runtimeT('saveTabSession') : 'Save tab session'}" data-tooltip="${runtimeT ? runtimeT('saveTabSession') : 'Save tab session'}">
           ${ICONS.archive}
         </button>
         <button class="chip-action chip-save" type="button" data-action="defer-single-tab" data-tab-id="${safeTabId}" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" aria-label="${runtimeT ? runtimeT('saveForLater') : 'Save for later'}" data-tooltip="${runtimeT ? runtimeT('saveForLater') : 'Save for later'}">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
         </button>
-        ${sleepControlEnabled && !tab.active ? `
-        <button class="chip-action chip-discard" type="button" data-action="discard-tab" data-tab-id="${tab.id}" aria-label="${runtimeT ? runtimeT('discardTab') : 'Sleep tab'}" data-tooltip="${runtimeT ? runtimeT('discardTab') : 'Sleep tab'}">
-          ${ICONS.moon}
-        </button>
-        ` : ''}
         <button class="chip-action chip-close" type="button" data-action="close-single-tab" data-tab-id="${safeTabId}" data-tab-url="${safeUrl}" aria-label="${runtimeT ? runtimeT('closeThisTab') : 'Close this tab'}" data-tooltip="${runtimeT ? runtimeT('closeThisTab') : 'Close this tab'}">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
         </button>
@@ -2438,15 +2447,15 @@ function renderDomainCard(group) {
       <span class="chip-favicon chip-favicon-fallback"${faviconUrl ? ' style="display:none"' : ''}>${fallbackLabel}</span>
       <span class="chip-text">${safeLabel}</span>${dupeTag}
       <div class="chip-actions">
+        ${sleepControlEnabled && !tab.active ? `<button class="chip-action chip-discard" data-action="discard-tab" data-tab-id="${tab.id}" aria-label="${runtimeT ? runtimeT('discardTab') : 'Sleep tab'}" data-tooltip="${runtimeT ? runtimeT('discardTab') : 'Sleep tab'}">
+          ${ICONS.moon}
+        </button>` : ''}
         <button class="chip-action chip-session-save" data-action="save-single-tab-session" data-tab-id="${tab.id}" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" aria-label="${runtimeT ? runtimeT('saveTabSession') : 'Save tab session'}" data-tooltip="${runtimeT ? runtimeT('saveTabSession') : 'Save tab session'}">
           ${ICONS.archive}
         </button>
         <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-id="${tab.id}" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" aria-label="${runtimeT ? runtimeT('saveForLater') : 'Save for later'}" data-tooltip="${runtimeT ? runtimeT('saveForLater') : 'Save for later'}">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
         </button>
-        ${sleepControlEnabled && !tab.active ? `<button class="chip-action chip-discard" data-action="discard-tab" data-tab-id="${tab.id}" aria-label="${runtimeT ? runtimeT('discardTab') : 'Sleep tab'}" data-tooltip="${runtimeT ? runtimeT('discardTab') : 'Sleep tab'}">
-          ${ICONS.moon}
-        </button>` : ''}
         <button class="chip-action chip-close" data-action="close-single-tab" data-tab-id="${tab.id}" data-tab-url="${safeUrl}" aria-label="${runtimeT ? runtimeT('closeThisTab') : 'Close this tab'}" data-tooltip="${runtimeT ? runtimeT('closeThisTab') : 'Close this tab'}">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
         </button>
@@ -2566,98 +2575,106 @@ function renderWorkspaceThemeTools() {
         </svg>
       </button>
       <div class="theme-menu" id="themeMenuPanel" hidden role="dialog" aria-label="${runtimeT ? runtimeT('deskSettingsPanel') : 'Desk settings panel'}">
-        <div class="theme-menu-section">
-          <div class="theme-menu-row theme-menu-row-inline-choices">
-            <div class="theme-menu-label">${runtimeT ? runtimeT('appearanceMode') : 'Appearance mode'}</div>
-            <div class="theme-mode-options" id="themeModeOptions" role="group" aria-label="${runtimeT ? runtimeT('appearanceMode') : 'Appearance mode'}"></div>
+        <div class="theme-menu-tabs" role="tablist" aria-label="${runtimeT ? runtimeT('deskSettingsPanel') : 'Desk settings panel'}">
+          <button class="theme-menu-tab" id="themeMenuAppearanceTab" type="button" role="tab" data-action="select-theme-menu-tab" data-theme-menu-tab="appearance" aria-controls="themeMenuAppearancePanel" aria-selected="true">${runtimeT ? runtimeT('settingsTabAppearance') : 'Appearance'}</button>
+          <button class="theme-menu-tab" id="themeMenuFeaturesTab" type="button" role="tab" data-action="select-theme-menu-tab" data-theme-menu-tab="features" aria-controls="themeMenuFeaturesPanel" aria-selected="false">${runtimeT ? runtimeT('settingsTabFeatures') : 'Features'}</button>
+        </div>
+        <div class="theme-menu-panel" id="themeMenuAppearancePanel" role="tabpanel" aria-labelledby="themeMenuAppearanceTab" data-theme-menu-panel="appearance">
+          <div class="theme-menu-section">
+            <div class="theme-menu-row theme-menu-row-inline-choices">
+              <div class="theme-menu-label">${runtimeT ? runtimeT('appearanceMode') : 'Appearance mode'}</div>
+              <div class="theme-mode-options" id="themeModeOptions" role="group" aria-label="${runtimeT ? runtimeT('appearanceMode') : 'Appearance mode'}"></div>
+            </div>
           </div>
-        </div>
-        <div class="theme-menu-section">
-          <div class="theme-menu-label">${runtimeT ? runtimeT('deskPalette') : 'Desk palette'}</div>
-          <div class="theme-options" id="themeOptions"></div>
-        </div>
-        <div class="theme-menu-section">
-          <div class="theme-menu-label">${runtimeT ? runtimeT('deskBackdrop') : 'Desk backdrop'}</div>
-          <div class="theme-menu-actions">
-            <button class="theme-menu-action" type="button" data-action="open-background-picker">${runtimeT ? runtimeT('uploadImage') : 'Upload image'}</button>
-            <button class="theme-menu-action is-secondary" type="button" data-action="clear-custom-background">${runtimeT ? runtimeT('clearText') : 'Clear'}</button>
+          <div class="theme-menu-section">
+            <div class="theme-menu-label">${runtimeT ? runtimeT('deskPalette') : 'Desk palette'}</div>
+            <div class="theme-options" id="themeOptions"></div>
           </div>
-        </div>
-        <div class="theme-menu-section">
-          <div class="theme-menu-row theme-menu-row-inline-choices">
-            <div class="theme-menu-label">${runtimeT ? runtimeT('languageLabel') : 'Language'}</div>
-            <div class="theme-language-options" role="group" aria-label="${runtimeT ? runtimeT('languageLabel') : 'Language'}">
-              <button class="theme-language-option ${languagePreference === 'auto' ? 'is-active' : ''}" type="button" data-action="select-language" data-language="auto" aria-pressed="${languagePreference === 'auto'}">${runtimeT ? runtimeT('languageAuto') : 'Auto'}</button>
-              <button class="theme-language-option ${languagePreference === 'en' ? 'is-active' : ''}" type="button" data-action="select-language" data-language="en" aria-pressed="${languagePreference === 'en'}">${runtimeT ? runtimeT('languageEnglish') : 'English'}</button>
-              <button class="theme-language-option ${languagePreference === 'zh-CN' ? 'is-active' : ''}" type="button" data-action="select-language" data-language="zh-CN" aria-pressed="${languagePreference === 'zh-CN'}">${runtimeT ? runtimeT('languageChinese') : 'Chinese'}</button>
+          <div class="theme-menu-section">
+            <div class="theme-menu-label">${runtimeT ? runtimeT('deskBackdrop') : 'Desk backdrop'}</div>
+            <div class="theme-menu-actions">
+              <button class="theme-menu-action" type="button" data-action="open-background-picker">${runtimeT ? runtimeT('uploadImage') : 'Upload image'}</button>
+              <button class="theme-menu-action is-secondary" type="button" data-action="clear-custom-background">${runtimeT ? runtimeT('clearText') : 'Clear'}</button>
+            </div>
+          </div>
+          <div class="theme-menu-section">
+            <div class="theme-menu-row theme-menu-row-inline-choices">
+              <div class="theme-menu-label">${runtimeT ? runtimeT('languageLabel') : 'Language'}</div>
+              <div class="theme-language-options" role="group" aria-label="${runtimeT ? runtimeT('languageLabel') : 'Language'}">
+                <button class="theme-language-option ${languagePreference === 'auto' ? 'is-active' : ''}" type="button" data-action="select-language" data-language="auto" aria-pressed="${languagePreference === 'auto'}">${runtimeT ? runtimeT('languageAuto') : 'Auto'}</button>
+                <button class="theme-language-option ${languagePreference === 'en' ? 'is-active' : ''}" type="button" data-action="select-language" data-language="en" aria-pressed="${languagePreference === 'en'}">${runtimeT ? runtimeT('languageEnglish') : 'English'}</button>
+                <button class="theme-language-option ${languagePreference === 'zh-CN' ? 'is-active' : ''}" type="button" data-action="select-language" data-language="zh-CN" aria-pressed="${languagePreference === 'zh-CN'}">${runtimeT ? runtimeT('languageChinese') : 'Chinese'}</button>
+              </div>
+            </div>
+          </div>
+          <div class="theme-menu-section">
+            <div class="theme-menu-row theme-menu-row-inline-range">
+              <div class="theme-menu-label">${runtimeT ? runtimeT('surfaceDepth') : 'Surface depth'}</div>
+              <input
+                class="theme-range"
+                id="themeTransparencyRange"
+                type="range"
+                aria-label="${runtimeT ? runtimeT('surfaceDepth') : 'Surface depth'}"
+                min="2"
+                max="60"
+                step="1"
+                value="14"
+              >
+              <div class="theme-range-value" id="themeTransparencyValue">14%</div>
+            </div>
+          </div>
+          <div class="theme-menu-section">
+            <div class="theme-menu-row theme-menu-row-inline-range">
+              <div class="theme-menu-label">${runtimeT ? runtimeT('uiScaleLabel') : 'Text size'}</div>
+              <input
+                class="theme-range"
+                id="themeUiScaleRange"
+                type="range"
+                aria-label="${runtimeT ? runtimeT('uiScaleLabel') : 'Text size'}"
+                min="100"
+                max="120"
+                step="1"
+                value="100"
+              >
+              <div class="theme-range-value" id="themeUiScaleValue">100%</div>
+            </div>
+          </div>
+          <div class="theme-menu-section">
+            <div class="theme-menu-row theme-menu-row-inline-range">
+              <div class="theme-menu-label">${runtimeT ? runtimeT('shortcutScaleLabel') : 'Shortcut size'}</div>
+              <input
+                class="theme-range"
+                id="themeShortcutScaleRange"
+                type="range"
+                aria-label="${runtimeT ? runtimeT('shortcutScaleLabel') : 'Shortcut size'}"
+                min="100"
+                max="130"
+                step="1"
+                value="100"
+              >
+              <div class="theme-range-value" id="themeShortcutScaleValue">100%</div>
             </div>
           </div>
         </div>
-        <div class="theme-menu-section">
-          <div class="theme-menu-row theme-menu-row-inline-range">
-            <div class="theme-menu-label">${runtimeT ? runtimeT('surfaceDepth') : 'Surface depth'}</div>
-            <input
-              class="theme-range"
-              id="themeTransparencyRange"
-              type="range"
-              aria-label="${runtimeT ? runtimeT('surfaceDepth') : 'Surface depth'}"
-              min="2"
-              max="60"
-              step="1"
-              value="14"
-            >
-            <div class="theme-range-value" id="themeTransparencyValue">14%</div>
+        <div class="theme-menu-panel" id="themeMenuFeaturesPanel" role="tabpanel" aria-labelledby="themeMenuFeaturesTab" data-theme-menu-panel="features" hidden>
+          <div class="theme-menu-section">
+            <label class="theme-menu-toggle-label theme-menu-toggle-button-row">
+              <button class="theme-toggle-switch ${chromeTabGroupsEnabled ? 'is-active' : ''}" type="button" data-action="toggle-chrome-tab-groups" aria-pressed="${chromeTabGroupsEnabled ? 'true' : 'false'}" aria-label="${runtimeT ? runtimeT('chromeTabGroupsLabel') : 'Chrome tab groups'}"></button>
+              <span class="theme-menu-label theme-menu-toggle-text">${runtimeT ? runtimeT('chromeTabGroupsLabel') : 'Chrome tab groups'}</span>
+            </label>
           </div>
-        </div>
-        <div class="theme-menu-section">
-          <div class="theme-menu-row theme-menu-row-inline-range">
-            <div class="theme-menu-label">${runtimeT ? runtimeT('uiScaleLabel') : 'Text size'}</div>
-            <input
-              class="theme-range"
-              id="themeUiScaleRange"
-              type="range"
-              aria-label="${runtimeT ? runtimeT('uiScaleLabel') : 'Text size'}"
-              min="100"
-              max="120"
-              step="1"
-              value="100"
-            >
-            <div class="theme-range-value" id="themeUiScaleValue">100%</div>
+          <div class="theme-menu-section">
+            <label class="theme-menu-toggle-label theme-menu-toggle-button-row">
+              <button class="theme-toggle-switch ${(typeof themePreferences !== 'undefined' && themePreferences.hitokotoEnabled !== false) ? 'is-active' : ''}" type="button" data-action="toggle-hitokoto" aria-pressed="${(typeof themePreferences !== 'undefined' && themePreferences.hitokotoEnabled !== false) ? 'true' : 'false'}" aria-label="${runtimeT ? runtimeT('hitokotoLabel') : '一言'}"></button>
+              <span class="theme-menu-label theme-menu-toggle-text">${runtimeT ? runtimeT('hitokotoLabel') : '一言'}</span>
+            </label>
           </div>
-        </div>
-        <div class="theme-menu-section">
-          <div class="theme-menu-row theme-menu-row-inline-range">
-            <div class="theme-menu-label">${runtimeT ? runtimeT('shortcutScaleLabel') : 'Shortcut size'}</div>
-            <input
-              class="theme-range"
-              id="themeShortcutScaleRange"
-              type="range"
-              aria-label="${runtimeT ? runtimeT('shortcutScaleLabel') : 'Shortcut size'}"
-              min="100"
-              max="130"
-              step="1"
-              value="100"
-            >
-            <div class="theme-range-value" id="themeShortcutScaleValue">100%</div>
+          <div class="theme-menu-section">
+            <label class="theme-menu-toggle-label theme-menu-toggle-button-row">
+              <button class="theme-toggle-switch ${sleepControlEnabled ? 'is-active' : ''}" type="button" data-action="toggle-sleep-control" aria-pressed="${sleepControlEnabled ? 'true' : 'false'}" aria-label="${runtimeT ? runtimeT('sleepControlLabel') : 'Manual sleep control'}"></button>
+              <span class="theme-menu-label theme-menu-toggle-text">${runtimeT ? runtimeT('sleepControlLabel') : 'Manual sleep control'}</span>
+            </label>
           </div>
-        </div>
-        <div class="theme-menu-section">
-          <label class="theme-menu-toggle-label theme-menu-toggle-button-row">
-            <button class="theme-toggle-switch ${chromeTabGroupsEnabled ? 'is-active' : ''}" type="button" data-action="toggle-chrome-tab-groups" aria-pressed="${chromeTabGroupsEnabled ? 'true' : 'false'}" aria-label="${runtimeT ? runtimeT('chromeTabGroupsLabel') : 'Chrome tab groups'}"></button>
-            <span class="theme-menu-label theme-menu-toggle-text">${runtimeT ? runtimeT('chromeTabGroupsLabel') : 'Chrome tab groups'}</span>
-          </label>
-        </div>
-        <div class="theme-menu-section">
-          <label class="theme-menu-toggle-label theme-menu-toggle-button-row">
-            <button class="theme-toggle-switch ${(typeof themePreferences !== 'undefined' && themePreferences.hitokotoEnabled !== false) ? 'is-active' : ''}" type="button" data-action="toggle-hitokoto" aria-pressed="${(typeof themePreferences !== 'undefined' && themePreferences.hitokotoEnabled !== false) ? 'true' : 'false'}" aria-label="${runtimeT ? runtimeT('hitokotoLabel') : '一言'}"></button>
-            <span class="theme-menu-label theme-menu-toggle-text">${runtimeT ? runtimeT('hitokotoLabel') : '一言'}</span>
-          </label>
-        </div>
-        <div class="theme-menu-section">
-          <label class="theme-menu-toggle-label theme-menu-toggle-button-row">
-            <button class="theme-toggle-switch ${sleepControlEnabled ? 'is-active' : ''}" type="button" data-action="toggle-sleep-control" aria-pressed="${sleepControlEnabled ? 'true' : 'false'}" aria-label="${runtimeT ? runtimeT('sleepControlLabel') : 'Manual sleep control'}"></button>
-            <span class="theme-menu-label theme-menu-toggle-text">${runtimeT ? runtimeT('sleepControlLabel') : 'Manual sleep control'}</span>
-          </label>
         </div>
         <input type="file" id="themeBackgroundInput" accept="image/*" hidden>
       </div>
@@ -3007,7 +3024,7 @@ async function renderStaticDashboard() {
   if (hitokotoEnabled && hitokotoEl && hitokotoTextEl && hitokotoFromEl) {
     const hasCachedHitokoto = renderCachedHitokoto(hitokotoTextEl, hitokotoFromEl);
     hitokotoEl.style.display = hasCachedHitokoto ? '' : 'none';
-    void refreshHitokotoInBackground(hitokotoTextEl, hitokotoFromEl);
+    void warmHitokotoCacheInBackground();
   } else if (hitokotoEl) {
     hitokotoEl.style.display = 'none';
   }
@@ -3045,9 +3062,7 @@ async function renderDashboard() {
   }
 }
 
-async function collapseChromeGroupsForCurrentTabHarborTab() {
-  if (typeof collapseChromeTabGroupsInWindow !== 'function') return;
-
+async function resolveCurrentDashboardTab() {
   let currentTab = null;
   try {
     currentTab = await chrome.tabs.getCurrent();
@@ -3055,14 +3070,29 @@ async function collapseChromeGroupsForCurrentTabHarborTab() {
     currentTab = null;
   }
 
-  if (!currentTab?.windowId) {
+  if (!currentTab?.id || !currentTab?.windowId) {
     try {
       const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      currentTab = activeTab || null;
+      currentTab = activeTab || currentTab || null;
     } catch {
-      currentTab = null;
+      currentTab = currentTab || null;
     }
   }
+
+  return currentTab;
+}
+
+function shouldSkipStartupTabChange(message = {}) {
+  if (Date.now() > dashboardStartupTabChangeIgnoreUntil) return false;
+  if (message.source !== 'tabs.onCreated' && message.source !== 'tabs.onUpdated') return false;
+  if (currentDashboardTabId == null || message.triggerTabId == null) return false;
+  return Number(message.triggerTabId) === Number(currentDashboardTabId);
+}
+
+async function collapseChromeGroupsForCurrentTabHarborTab() {
+  if (typeof collapseChromeTabGroupsInWindow !== 'function') return;
+
+  const currentTab = await resolveCurrentDashboardTab();
 
   const extensionId = chrome.runtime.id;
   const newtabUrl = `chrome-extension://${extensionId}/index.html`;
@@ -3097,6 +3127,12 @@ document.addEventListener('click', async (e) => {
 
   if (action === 'toggle-theme-menu') {
     setThemeMenuOpen(!themeMenuOpen);
+    return;
+  }
+
+  if (action === 'select-theme-menu-tab') {
+    themeMenuActiveTab = actionEl.dataset.themeMenuTab === 'features' ? 'features' : 'appearance';
+    renderThemeMenu();
     return;
   }
 
@@ -4335,6 +4371,13 @@ function setupImageErrorHandlers() {
 async function initializeDashboardRuntime() {
   injectDynamicAnimationStyles();
   primeEntryAnimations();
+  const currentTab = await resolveCurrentDashboardTab();
+  currentDashboardTabId = currentTab?.id ?? null;
+  dashboardStartupTabChangeIgnoreUntil = Date.now() + 2000;
+  window.__suppressAutoRefreshUntil = Math.max(
+    window.__suppressAutoRefreshUntil || 0,
+    Date.now() + 2000
+  );
   await loadThemePreferences();
   sleepControlEnabled = (typeof themePreferences !== 'undefined' && themePreferences.sleepControlEnabled === true);
   if (typeof loadChromeTabGroupsSetting === 'function') {
@@ -4373,6 +4416,10 @@ function setupTabChangeListener() {
     // console.log('[tab-harbor] Received message:', message);
     
     if (message.action === 'tabs-changed') {
+      if (shouldSkipStartupTabChange(message)) {
+        return;
+      }
+
       // Skip refresh if we just performed a tab action ourselves
       // This prevents animation spam when closing tabs from the dashboard
       if (Date.now() < (window.__suppressAutoRefreshUntil || 0)) {

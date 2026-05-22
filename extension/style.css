@@ -625,6 +625,47 @@ body.quick-shortcut-list-dragging .quick-shortcut-open {
   border-top: 1px solid color-mix(in srgb, var(--workspace-accent-border) 18%, transparent);
 }
 
+.theme-menu-tabs {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 18px;
+  margin-bottom: 16px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--workspace-accent-border) 18%, transparent);
+}
+
+.theme-menu-tab {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: color-mix(in srgb, var(--muted) 74%, var(--ink) 26%);
+  min-height: auto;
+  padding: 0 0 3px;
+  font-family: 'Public Sans', sans-serif;
+  font-size: 12px;
+  font-size: var(--ui-font-12);
+  font-weight: 700;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.theme-menu-tab:hover {
+  color: var(--ink);
+}
+
+.theme-menu-tab.is-active {
+  color: var(--theme-accent-strong);
+  text-decoration: underline;
+  text-underline-offset: 0.28em;
+  text-decoration-thickness: 1px;
+  text-decoration-color: color-mix(in srgb, var(--workspace-accent-border) 68%, transparent);
+}
+
+.theme-menu-panel[hidden] {
+  display: none;
+}
+
 .theme-menu-row {
   display: flex;
   align-items: center;

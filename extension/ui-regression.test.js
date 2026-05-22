@@ -102,6 +102,24 @@ test('group close control is icon-only and tab rows expose session save actions'
   assert.match(helperJs, /archive: `<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" viewBox="0 0 1024 1024" fill="currentColor" aria-hidden="true"><path d="M845\.312 0\.512H32\.512v1022\.976h958\.976v-876\.8L845\.312 0\.512z/);
 });
 
+test('desk settings separates appearance and feature controls', () => {
+  const css = fs.readFileSync(path.join(__dirname, 'style.css'), 'utf8');
+
+  assert.match(runtimeJs, /class="theme-menu-tabs" role="tablist"/);
+  assert.match(runtimeJs, /data-theme-menu-tab="appearance"[\s\S]*data-theme-menu-tab="features"/);
+  assert.match(runtimeJs, /id="themeMenuAppearancePanel"[\s\S]*id="themeModeOptions"[\s\S]*id="themeOptions"/);
+  assert.match(runtimeJs, /id="themeMenuFeaturesPanel"[\s\S]*data-action="toggle-chrome-tab-groups"[\s\S]*data-action="toggle-hitokoto"[\s\S]*data-action="toggle-sleep-control"/);
+  assert.match(runtimeJs, /if \(action === 'select-theme-menu-tab'\)/);
+  assert.match(themeJs, /let themeMenuActiveTab = 'appearance';/);
+  assert.match(themeJs, /querySelectorAll\('\[data-theme-menu-panel\]'\)/);
+  assert.match(css, /\.theme-menu-tab \{[\s\S]*border:\s*none;[\s\S]*border-radius:\s*0;/);
+});
+
+test('manual sleep control places per-tab moon action first', () => {
+  assert.match(runtimeJs, /function buildOverflowChips[\s\S]*<div class="chip-actions">\s*\$\{sleepControlEnabled && !tab\.active \? `\s*<button class="chip-action chip-discard"[\s\S]*<button class="chip-action chip-session-save"/);
+  assert.match(runtimeJs, /function renderDomainCard[\s\S]*<div class="chip-actions">\s*\$\{sleepControlEnabled && !tab\.active \? `<button class="chip-action chip-discard"[\s\S]*<button class="chip-action chip-session-save"/);
+});
+
 test('icon-only actions use themed tooltips instead of native title hovers', () => {
   const css = fs.readFileSync(path.join(__dirname, 'style.css'), 'utf8');
 
@@ -959,6 +977,9 @@ test('dashboard auto-refreshes when tabs change via background message', () => {
   assert.match(bgJs, /notifyTabHarborPages/);
   assert.match(bgJs, /chrome\.tabs\.sendMessage/);
   assert.match(bgJs, /action:\s*'tabs-changed'/);
+  assert.match(bgJs, /triggerTabId/);
+  assert.match(bgJs, /source:\s*'tabs\.onCreated'/);
+  assert.match(bgJs, /source:\s*'tabs\.onUpdated'/);
   assert.match(bgJs, /chrome\.tabs\.onCreated\.addListener/);
   assert.match(bgJs, /chrome\.tabs\.onRemoved\.addListener/);
   
@@ -966,6 +987,10 @@ test('dashboard auto-refreshes when tabs change via background message', () => {
   assert.match(appJs, /setupTabChangeListener/);
   assert.match(appJs, /chrome\.runtime\.onMessage\.addListener/);
   assert.match(appJs, /message\.action === 'tabs-changed'/);
+  assert.match(appJs, /shouldSkipStartupTabChange\(message\)/);
+  assert.match(appJs, /initializeDashboardRuntime[\s\S]*window\.__suppressAutoRefreshUntil = Math\.max\([\s\S]*Date\.now\(\) \+ 2000/);
+  assert.match(appJs, /dashboardStartupTabChangeIgnoreUntil/);
+  assert.match(appJs, /currentDashboardTabId/);
   assert.match(appJs, /setTimeout[\s\S]*renderDashboard/);
   assert.match(appJs, /__tabRefreshTimeout/);
 });
@@ -1026,10 +1051,12 @@ test('hitokoto uses cached text and refreshes in the background without blocking
   assert.match(runtimeJs, /const HITOKOTO_CACHE_KEY = 'hitokotoCache';/);
   assert.match(runtimeJs, /function renderCachedHitokoto\(/);
   assert.match(runtimeJs, /function refreshHitokotoInBackground\(/);
-  assert.match(runtimeJs, /renderCachedHitokoto\(hitokotoTextEl, hitokotoFromEl\);[\s\S]*void refreshHitokotoInBackground\(hitokotoTextEl, hitokotoFromEl\);/);
+  assert.match(runtimeJs, /function warmHitokotoCacheInBackground\(/);
+  assert.match(runtimeJs, /renderCachedHitokoto\(hitokotoTextEl, hitokotoFromEl\);[\s\S]*void warmHitokotoCacheInBackground\(\);/);
 
   const renderStaticDashboardBody = runtimeJs.match(
     /async function renderStaticDashboard\(\) \{([\s\S]*?)\n\}\n\nasync function renderDashboard/
   )?.[1] || '';
   assert.doesNotMatch(renderStaticDashboardBody, /await fetchHitokoto/);
+  assert.doesNotMatch(renderStaticDashboardBody, /refreshHitokotoInBackground/);
 });
