@@ -27,6 +27,7 @@ const {
   getFallbackLabel: runtimeGetFallbackLabel,
   getGroupIcon: runtimeGetGroupIcon,
   getIconSources: runtimeGetIconSources,
+  getPrimaryDomain: runtimeGetPrimaryDomain,
 } = globalThis.TabOutIconUtils || {};
 
 const {
@@ -79,6 +80,23 @@ const {
   compressImageFileForStorage,
 } = globalThis.TabOutBackgroundImage || {};
 
+const {
+  getSavedSessionRestoreMode: runtimeGetSavedSessionRestoreMode,
+} = globalThis.TabOutThemeControls || {};
+
+const {
+  getCanonicalTabUrl: runtimeGetCanonicalTabUrl,
+  isRestorableTabUrl: runtimeIsRestorableTabUrl,
+  parseSuspendedTabUrl: runtimeParseSuspendedTabUrl,
+} = globalThis.TabHarborTabUrlUtils || {};
+
+const {
+  addSavedTabSession: runtimeAddSavedTabSession,
+  buildSessionSnapshot: runtimeBuildSessionSnapshot,
+  createRestoredSessionGroups: runtimeCreateRestoredSessionGroups,
+  getSavedTabSessions: runtimeGetSavedTabSessions,
+} = globalThis.TabHarborTabSessions || {};
+
 /* ----------------------------------------------------------------
    CHROME TABS — Direct API Access
 
@@ -116,6 +134,7 @@ let pageChipDragState = null;
 let pageChipPlaceholderEl = null;
 let pageChipNewGroupSlotEl = null;
 let chromeTabGroupsEnabled = false;
+let sleepControlEnabled = false;
 let importedChromeGroupMeta = normalizeChromeImportedGroupMeta
   ? normalizeChromeImportedGroupMeta(runtimeEmptyChromeImportedMeta)
   : { entries: [] };
@@ -123,6 +142,8 @@ let chromeTabGroupsImportTimer = null;
 let chromeTabGroupsUnsubscribe = null;
 let chromeTabGroupsImportInFlight = false;
 let suppressChromeTabGroupsImportUntil = 0;
+let currentDashboardTabId = null;
+let dashboardStartupTabChangeIgnoreUntil = 0;
 const ENTRY_ANIMATIONS_CLASS = 'entry-animations-enabled';
 let entryAnimationsTimer = null;
 const CHROME_TAB_GROUPS_DEBUG_KEY = 'chromeTabGroupsDebug';
@@ -664,6 +685,13 @@ function refreshHitokotoInBackground(textEl, fromEl) {
   }).catch(() => { /* silently fail */ });
 }
 
+function warmHitokotoCacheInBackground() {
+  fetchHitokoto().then(data => {
+    if (typeof themePreferences !== 'undefined' && themePreferences.hitokotoEnabled === false) return;
+    addHitokotoToCache(data);
+  }).catch(() => { /* silently fail */ });
+}
+
 async function fetchOpenTabs() {
   try {
     const extensionId = chrome.runtime.id;
@@ -671,16 +699,29 @@ async function fetchOpenTabs() {
     const newtabUrl = `chrome-extension://${extensionId}/index.html`;
 
     const tabs = await chrome.tabs.query({});
-    openTabs = tabs.map(t => ({
-      id:       t.id,
-      url:      t.url,
-      title:    t.title,
-      windowId: t.windowId,
-      active:   t.active,
-      favIconUrl: t.favIconUrl || '',
-      // Flag Tab Harbor's own pages so we can detect duplicate new tabs
-      isTabOut: t.url === newtabUrl || t.url === 'chrome://newtab/',
-    }));
+    openTabs = tabs.map(t => {
+      const rawUrl = t.url || '';
+      const suspended = runtimeParseSuspendedTabUrl
+        ? runtimeParseSuspendedTabUrl(rawUrl)
+        : { isSuspended: false, originalUrl: '', title: '' };
+      const canonicalUrl = runtimeGetCanonicalTabUrl
+        ? runtimeGetCanonicalTabUrl(rawUrl)
+        : rawUrl;
+
+      return {
+        id:       t.id,
+        rawUrl,
+        url:      canonicalUrl,
+        title:    suspended.title || t.title,
+        windowId: t.windowId,
+        active:   t.active,
+        favIconUrl: t.favIconUrl || '',
+        isSuspended: Boolean(suspended.isSuspended),
+        discarded: t.discarded || false,
+        // Flag Tab Harbor's own pages so we can detect duplicate new tabs
+        isTabOut: rawUrl === newtabUrl || rawUrl === 'chrome://newtab/',
+      };
+    });
   } catch {
     // chrome.tabs API unavailable (shouldn't happen in an extension page)
     openTabs = [];
@@ -958,7 +999,7 @@ function updateGroupNavButtonIcon(groupKey) {
   if (img && iconData.src) {
     img.src = iconData.src;
     if (typeof runtimeSetImageFallbackAttributes === 'function') {
-      runtimeSetImageFallbackAttributes(img, iconData.fallbackSrc);
+      runtimeSetImageFallbackAttributes(img, iconData.fallbackSources || iconData.fallbackSrc);
     }
     img.style.display = '';
     if (fallback) {
@@ -1009,6 +1050,266 @@ function syncGroupOrderState(orderKeys) {
 
 function getStableGroupId(groupKey) {
   return 'domain-' + String(groupKey).replace(/[^a-z0-9]/g, '-');
+}
+
+function getTabIdValue(tabId) {
+  const id = Number(tabId);
+  return Number.isFinite(id) ? id : null;
+}
+
+async function getCurrentWindowId() {
+  const currentWindow = await chrome.windows.getCurrent();
+  return currentWindow?.id;
+}
+
+function getTabCanonicalUrl(tab) {
+  return runtimeGetCanonicalTabUrl ? runtimeGetCanonicalTabUrl(tab?.url || '') : String(tab?.url || '');
+}
+
+function getTabsByIds(tabIds = [], tabs = openTabs) {
+  const selectedIds = new Set((tabIds || []).map(String).filter(Boolean));
+  return (Array.isArray(tabs) ? tabs : []).filter(tab => selectedIds.has(String(tab?.id)));
+}
+
+function getTabGroupLookup(groups = domainGroups) {
+  const lookup = new Map();
+  for (const group of Array.isArray(groups) ? groups : []) {
+    const groupEntry = {
+      key: String(group?.domain || ''),
+      label: getGroupDisplayLabel(group),
+      manualGroupId: String(group?.manualGroupId || ''),
+    };
+    for (const tab of Array.isArray(group?.tabs) ? group.tabs : []) {
+      if (tab?.id != null) lookup.set(String(tab.id), groupEntry);
+      if (tab?.url) lookup.set(String(tab.url), groupEntry);
+    }
+  }
+  return lookup;
+}
+
+async function refreshTabSessionModel() {
+  await fetchOpenTabs();
+  const realTabs = getRealTabs();
+  await loadSessionGroups(realTabs.map(tab => tab.id));
+  await loadGroupOrder();
+  await loadGroupLabelOverrides();
+  await buildDomainGroups(realTabs);
+  return realTabs;
+}
+
+async function saveTabsAsSession(tabs, selectedTabIds, source = 'manual') {
+  if (!runtimeBuildSessionSnapshot || !runtimeAddSavedTabSession) {
+    throw new Error('Session storage is unavailable');
+  }
+
+  const selectedIds = new Set((selectedTabIds || []).map(String).filter(Boolean));
+  const snapshot = runtimeBuildSessionSnapshot({
+    tabs,
+    groupLookup: getTabGroupLookup(),
+    selectedTabIds: [...selectedIds],
+    source,
+    now: new Date().toISOString(),
+  });
+
+  const savedSessions = await runtimeAddSavedTabSession(snapshot);
+  const tabIdsToClose = (Array.isArray(tabs) ? tabs : [])
+    .filter(tab => selectedIds.has(String(tab?.id)) && (runtimeIsRestorableTabUrl ? runtimeIsRestorableTabUrl(tab?.url || '') : true))
+    .map(tab => getTabIdValue(tab?.id))
+    .filter(Number.isFinite);
+
+  if (tabIdsToClose.length > 0) {
+    await chrome.tabs.remove(tabIdsToClose);
+  }
+
+  await renderDashboard();
+
+  return {
+    session: snapshot,
+    sessions: savedSessions,
+    closedTabIds: tabIdsToClose,
+  };
+}
+
+async function saveCurrentWindowTabSession() {
+  const realTabs = await refreshTabSessionModel();
+  const currentWindowId = await getCurrentWindowId();
+  const windowTabs = realTabs.filter(tab => tab.windowId === currentWindowId);
+  const result = await saveTabsAsSession(
+    windowTabs,
+    windowTabs.map(tab => String(tab.id)),
+    'current-window'
+  );
+  return result;
+}
+
+async function saveSelectedTabSession(tabIds = [], source = 'selected') {
+  const realTabs = await refreshTabSessionModel();
+  const selectedTabs = getTabsByIds(tabIds, realTabs);
+  const result = await saveTabsAsSession(selectedTabs, tabIds, source);
+  return result;
+}
+
+async function getTabSessionPickerContext() {
+  await refreshTabSessionModel();
+  const currentWindowId = await getCurrentWindowId();
+  const groups = domainGroups
+    .map(group => ({
+      key: String(group.domain),
+      label: getGroupDisplayLabel(group),
+      manualGroupId: String(group.manualGroupId || ''),
+      tabs: getOrderedUniqueTabsForGroup(group)
+        .filter(tab => tab.windowId === currentWindowId)
+        .filter(tab => runtimeIsRestorableTabUrl ? runtimeIsRestorableTabUrl(tab.url || '') : true)
+        .map(tab => ({
+          id: tab.id,
+          url: tab.url,
+          rawUrl: tab.rawUrl || tab.url,
+          title: tab.title || tab.url,
+          favIconUrl: tab.favIconUrl || '',
+          windowId: tab.windowId,
+        })),
+    }))
+    .filter(group => group.tabs.length > 0);
+
+  return { groups };
+}
+
+async function openSavedTabsInCurrentWindow(tabs = []) {
+  const [firstTab, ...restTabs] = Array.isArray(tabs) ? tabs : [];
+  if (!firstTab?.url) return { restoredTabs: [], windowId: null };
+
+  const currentWindowId = await getCurrentWindowId();
+  const firstCreatedTab = currentWindowId != null
+    ? await chrome.tabs.create({
+      windowId: currentWindowId,
+      url: firstTab.url,
+      active: true,
+    })
+    : await chrome.tabs.create({
+      url: firstTab.url,
+      active: true,
+    });
+  const targetWindowId = firstCreatedTab?.windowId ?? currentWindowId ?? null;
+  const restoredTabs = firstCreatedTab?.id != null
+    ? [{ id: firstCreatedTab.id, url: firstTab.url }]
+    : [];
+
+  for (const tab of restTabs) {
+    const createdTab = await chrome.tabs.create({
+      windowId: targetWindowId,
+      url: tab.url,
+      active: false,
+    });
+    restoredTabs.push({
+      id: createdTab.id,
+      url: tab.url,
+    });
+  }
+
+  return { restoredTabs, windowId: targetWindowId };
+}
+
+async function openSavedTabsInNewWindow(tabs = []) {
+  const [firstTab, ...restTabs] = Array.isArray(tabs) ? tabs : [];
+  if (!firstTab?.url) return { restoredTabs: [], windowId: null };
+
+  const createdWindow = await chrome.windows.create({
+    url: firstTab.url,
+    focused: true,
+  });
+  const restoredTabs = [];
+  const firstCreatedTab = Array.isArray(createdWindow?.tabs) ? createdWindow.tabs[0] : null;
+  if (firstCreatedTab?.id != null) {
+    restoredTabs.push({
+      id: firstCreatedTab.id,
+      url: firstTab.url,
+    });
+  } else if (createdWindow?.id != null) {
+    const createdWindowTabs = await chrome.tabs.query({ windowId: createdWindow.id });
+    const queriedFirstTab = createdWindowTabs?.[0];
+    if (queriedFirstTab?.id != null) {
+      restoredTabs.push({
+        id: queriedFirstTab.id,
+        url: firstTab.url,
+      });
+    }
+  }
+
+  for (const tab of restTabs) {
+    const createdTab = await chrome.tabs.create({
+      windowId: createdWindow.id,
+      url: tab.url,
+      active: false,
+    });
+    restoredTabs.push({
+      id: createdTab.id,
+      url: tab.url,
+    });
+  }
+
+  return { restoredTabs, windowId: createdWindow?.id ?? null };
+}
+
+async function restoreSavedTabToBrowser(tabUrl) {
+  if (!tabUrl) return null;
+  const restoreMode = runtimeGetSavedSessionRestoreMode ? runtimeGetSavedSessionRestoreMode() : 'new-window';
+  if (restoreMode === 'current-window') {
+    const { windowId } = await openSavedTabsInCurrentWindow([{ url: tabUrl }]);
+    return { windowId, restoreMode };
+  }
+  const { windowId } = await openSavedTabsInNewWindow([{ url: tabUrl }]);
+  return { windowId, restoreMode };
+}
+
+async function restoreSavedTabSession(sessionId) {
+  if (!runtimeGetSavedTabSessions || !runtimeCreateRestoredSessionGroups) {
+    throw new Error('Session restore is unavailable');
+  }
+
+  const sessions = await runtimeGetSavedTabSessions();
+  const session = sessions.find(item => item.id === String(sessionId));
+  if (!session || !Array.isArray(session.tabs) || !session.tabs.length) {
+    throw new Error('Session not found');
+  }
+
+  const restoreMode = runtimeGetSavedSessionRestoreMode ? runtimeGetSavedSessionRestoreMode() : 'new-window';
+  const { restoredTabs, windowId } = restoreMode === 'current-window'
+    ? await openSavedTabsInCurrentWindow(session.tabs)
+    : await openSavedTabsInNewWindow(session.tabs);
+
+  const nextSessionGroups = runtimeCreateRestoredSessionGroups({
+    existingState: sessionGroupsState,
+    session,
+    restoredTabs,
+    now: new Date().toISOString(),
+  });
+  await saveSessionGroups(nextSessionGroups);
+  await renderDashboard();
+
+  return {
+    restoredCount: restoredTabs.length,
+    windowId,
+  };
+}
+
+async function removeOpenTabByIdOrUrl(tabId, tabUrl) {
+  const numericTabId = getTabIdValue(tabId);
+  if (numericTabId != null) {
+    await chrome.tabs.remove(numericTabId);
+    return numericTabId;
+  }
+
+  const allTabs = await chrome.tabs.query({});
+  const targetUrl = runtimeGetCanonicalTabUrl ? runtimeGetCanonicalTabUrl(tabUrl || '') : tabUrl;
+  const match = allTabs.find(tab => {
+    const canonicalUrl = getTabCanonicalUrl(tab);
+    return tab.url === tabUrl || canonicalUrl === targetUrl;
+  });
+  if (match?.id != null) {
+    await chrome.tabs.remove(match.id);
+    return match.id;
+  }
+  return null;
 }
 
 function animateNavButtonNode(button, previousRect) {
@@ -1155,7 +1456,7 @@ function applyLiveGroupOrder(orderKeys, options = {}) {
   syncGroupOrderState(domainGroups.map(group => group.domain));
 
   const missionsEl = document.getElementById('openTabsMissions');
-  const navListEl = document.querySelector('#openTabsGroupNav .group-nav-list');
+  const navListEl = document.querySelector('#workspaceTopNav .group-nav-list[data-nav-kind="open-tabs"]');
   if (options.reorderCards !== false) {
     const previousMissionRects = new Map();
     missionsEl?.querySelectorAll('.mission-card').forEach(card => {
@@ -1711,7 +2012,7 @@ function ensureDragPlaceholder() {
 }
 
 function previewDraggedOrder(clientX) {
-  const navListEl = document.querySelector('#openTabsGroupNav .group-nav-list');
+  const navListEl = document.querySelector('#workspaceTopNav .group-nav-list[data-nav-kind="open-tabs"]');
   if (!navListEl || !draggedGroupId) return;
 
   const placeholder = ensureDragPlaceholder();
@@ -1775,10 +2076,11 @@ async function closeTabsByUrls(urls) {
   const exactUrls = new Set();
 
   for (const u of urls) {
-    if (u.startsWith('file://')) {
-      exactUrls.add(u);
+    const canonicalUrl = runtimeGetCanonicalTabUrl ? runtimeGetCanonicalTabUrl(u) : u;
+    if (canonicalUrl.startsWith('file://')) {
+      exactUrls.add(canonicalUrl);
     } else {
-      try { targetHostnames.push(new URL(u).hostname); }
+      try { targetHostnames.push(new URL(canonicalUrl).hostname); }
       catch { /* skip unparseable */ }
     }
   }
@@ -1786,7 +2088,7 @@ async function closeTabsByUrls(urls) {
   const allTabs = await chrome.tabs.query({});
   const toClose = allTabs
     .filter(tab => {
-      const tabUrl = tab.url || '';
+      const tabUrl = getTabCanonicalUrl(tab);
       if (tabUrl.startsWith('file://') && exactUrls.has(tabUrl)) return true;
       try {
         const tabHostname = new URL(tabUrl).hostname;
@@ -1808,9 +2110,9 @@ async function closeTabsByUrls(urls) {
  */
 async function closeTabsExact(urls) {
   if (!urls || urls.length === 0) return;
-  const urlSet = new Set(urls);
+  const urlSet = new Set(urls.map(url => runtimeGetCanonicalTabUrl ? runtimeGetCanonicalTabUrl(url) : url));
   const allTabs = await chrome.tabs.query({});
-  const toClose = allTabs.filter(t => urlSet.has(t.url)).map(t => t.id);
+  const toClose = allTabs.filter(t => urlSet.has(getTabCanonicalUrl(t))).map(t => t.id);
   if (toClose.length > 0) await chrome.tabs.remove(toClose);
   await fetchOpenTabs();
   await loadSessionGroups(openTabs.map(tab => tab.id));
@@ -1822,20 +2124,36 @@ async function closeTabsExact(urls) {
  * Switches Chrome to the tab with the given URL (exact match first,
  * then hostname fallback). Also brings the window to the front.
  */
-async function focusTab(url) {
-  if (!url) return;
+async function focusTab(url, tabId = null) {
+  if (!url && !tabId) return;
+  const numericTabId = getTabIdValue(tabId);
+  if (numericTabId != null) {
+    try {
+      const targetTab = await chrome.tabs.get(numericTabId);
+      if (targetTab?.id != null) {
+        await chrome.tabs.update(targetTab.id, { active: true });
+        await chrome.windows.update(targetTab.windowId, { focused: true });
+        if (typeof syncChromeTabGroupExpansionForTab === 'function') {
+          await syncChromeTabGroupExpansionForTab(targetTab);
+        }
+        return true;
+      }
+    } catch { /* fall back to URL matching */ }
+  }
+
   const allTabs = await chrome.tabs.query({});
   const currentWindow = await chrome.windows.getCurrent();
+  const targetUrl = runtimeGetCanonicalTabUrl ? runtimeGetCanonicalTabUrl(url || '') : url;
 
   // Try exact URL match first
-  let matches = allTabs.filter(t => t.url === url);
+  let matches = allTabs.filter(t => getTabCanonicalUrl(t) === targetUrl || t.url === url);
 
   // Fall back to hostname match
   if (matches.length === 0) {
     try {
-      const targetHost = new URL(url).hostname;
+      const targetHost = new URL(targetUrl).hostname;
       matches = allTabs.filter(t => {
-        try { return new URL(t.url).hostname === targetHost; }
+        try { return new URL(getTabCanonicalUrl(t)).hostname === targetHost; }
         catch { return false; }
       });
     } catch {}
@@ -1895,7 +2213,8 @@ async function closeDuplicateTabs(urls, keepOne = true) {
   const toClose = [];
 
   for (const url of urls) {
-    const matching = allTabs.filter(t => t.url === url);
+    const targetUrl = runtimeGetCanonicalTabUrl ? runtimeGetCanonicalTabUrl(url) : url;
+    const matching = allTabs.filter(t => getTabCanonicalUrl(t) === targetUrl);
     if (keepOne) {
       const keep = matching.find(t => t.active) || matching[0];
       for (const tab of matching) {
@@ -1939,6 +2258,23 @@ async function closeTabOutDupes() {
   await fetchOpenTabs();
 }
 
+/**
+ * discardTab(tabId)
+ *
+ * Discards (unloads) a tab to free memory while keeping it in the tab bar.
+ * Chrome's discard API puts the tab to sleep; clicking it later will reload.
+ */
+async function discardTab(tabId) {
+  if (!tabId) return false;
+  try {
+    await chrome.tabs.discard(Number(tabId));
+    return true;
+  } catch (err) {
+    console.error('Failed to discard tab:', err);
+    return false;
+  }
+}
+
 
 /* ----------------------------------------------------------------
    IN-MEMORY STORE FOR OPEN-TAB GROUPS
@@ -1959,6 +2295,7 @@ let domainGroups = [];
 function getRealTabs() {
   return openTabs.filter(t => {
     const url = t.url || '';
+    if (runtimeIsRestorableTabUrl) return runtimeIsRestorableTabUrl(url);
     return (
       !url.startsWith('chrome://') &&
       !url.startsWith('chrome-extension://') &&
@@ -2008,15 +2345,24 @@ function buildOverflowChips(hiddenTabs, urlCounts = {}) {
     const fallbackUrl = iconData.sources[1] || '';
     const fallbackLabel = runtimeGetFallbackLabel(label, iconData.hostname);
     const safeFallbackUrl = runtimeEscapeHtmlAttribute ? runtimeEscapeHtmlAttribute(fallbackUrl) : fallbackUrl.replace(/"/g, '&quot;');
-    return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" aria-label="${safeTitle}">
-      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" data-fallback-src="${safeFallbackUrl}">` : ''}
+    const safeTabId = runtimeEscapeHtmlAttribute ? runtimeEscapeHtmlAttribute(String(tab.id || '')) : String(tab.id || '').replace(/"/g, '&quot;');
+    return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-id="${safeTabId}" data-tab-url="${safeUrl}" aria-label="${safeTitle}">
+      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" data-fallback-src="${safeFallbackUrl}" data-fallback-srcset="${runtimeEscapeHtmlAttribute ? runtimeEscapeHtmlAttribute(JSON.stringify(iconData.sources.slice(2))) : JSON.stringify(iconData.sources.slice(2)).replace(/"/g, '&quot;')}">` : ''}
       <span class="chip-favicon chip-favicon-fallback"${faviconUrl ? ' style="display:none"' : ''}>${fallbackLabel}</span>
       <span class="chip-text">${safeLabel}</span>${dupeTag}
       <div class="chip-actions">
-        <button class="chip-action chip-save" type="button" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" aria-label="${runtimeT ? runtimeT('saveForLater') : 'Save for later'}" title="${runtimeT ? runtimeT('saveForLater') : 'Save for later'}">
+        ${sleepControlEnabled && !tab.active ? `
+        <button class="chip-action chip-discard" type="button" data-action="discard-tab" data-tab-id="${tab.id}" aria-label="${runtimeT ? runtimeT('discardTab') : 'Sleep tab'}" data-tooltip="${runtimeT ? runtimeT('discardTab') : 'Sleep tab'}">
+          ${ICONS.moon}
+        </button>
+        ` : ''}
+        <button class="chip-action chip-session-save" type="button" data-action="save-single-tab-session" data-tab-id="${safeTabId}" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" aria-label="${runtimeT ? runtimeT('saveTabSession') : 'Save tab session'}" data-tooltip="${runtimeT ? runtimeT('saveTabSession') : 'Save tab session'}">
+          ${ICONS.archive}
+        </button>
+        <button class="chip-action chip-save" type="button" data-action="defer-single-tab" data-tab-id="${safeTabId}" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" aria-label="${runtimeT ? runtimeT('saveForLater') : 'Save for later'}" data-tooltip="${runtimeT ? runtimeT('saveForLater') : 'Save for later'}">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
         </button>
-        <button class="chip-action chip-close" type="button" data-action="close-single-tab" data-tab-url="${safeUrl}" aria-label="${runtimeT ? runtimeT('closeThisTab') : 'Close this tab'}" title="${runtimeT ? runtimeT('closeThisTab') : 'Close this tab'}">
+        <button class="chip-action chip-close" type="button" data-action="close-single-tab" data-tab-id="${safeTabId}" data-tab-url="${safeUrl}" aria-label="${runtimeT ? runtimeT('closeThisTab') : 'Close this tab'}" data-tooltip="${runtimeT ? runtimeT('closeThisTab') : 'Close this tab'}">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
         </button>
       </div>
@@ -2081,7 +2427,7 @@ function renderDomainCard(group) {
     } catch {}
     const count    = urlCounts[tab.url];
     const dupeTag  = count > 1 ? ` <span class="chip-dupe-badge">(${count}x)</span>` : '';
-    const chipClass = count > 1 ? ' chip-has-dupes' : '';
+    const chipClass = `${count > 1 ? ' chip-has-dupes' : ''}${tab.discarded ? ' page-chip--discarded' : ''}`;
     const safeUrl   = runtimeEscapeHtmlAttribute ? runtimeEscapeHtmlAttribute(tab.url || '') : (tab.url || '').replace(/"/g, '&quot;');
     const safeTitle = runtimeEscapeHtmlAttribute ? runtimeEscapeHtmlAttribute(label) : label.replace(/"/g, '&quot;');
     const safeLabel = runtimeEscapeHtml ? runtimeEscapeHtml(label) : label;
@@ -2097,24 +2443,33 @@ function renderDomainCard(group) {
       <button class="drawer-reorder-handle chip-reorder-handle" type="button" data-chip-drag-handle="tab" aria-label="${runtimeT ? runtimeT('dragReorderTab') : 'Drag to reorder tab'}">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8 6h.01M8 12h.01M8 18h.01M16 6h.01M16 12h.01M16 18h.01" /></svg>
       </button>
-      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" data-fallback-src="${safeFallbackUrl}">` : ''}
+      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" data-fallback-src="${safeFallbackUrl}" data-fallback-srcset="${runtimeEscapeHtmlAttribute ? runtimeEscapeHtmlAttribute(JSON.stringify(iconData.sources.slice(2))) : JSON.stringify(iconData.sources.slice(2)).replace(/"/g, '&quot;')}">` : ''}
       <span class="chip-favicon chip-favicon-fallback"${faviconUrl ? ' style="display:none"' : ''}>${fallbackLabel}</span>
       <span class="chip-text">${safeLabel}</span>${dupeTag}
       <div class="chip-actions">
-        <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="${runtimeT ? runtimeT('saveForLater') : 'Save for later'}">
+        ${sleepControlEnabled && !tab.active ? `<button class="chip-action chip-discard" data-action="discard-tab" data-tab-id="${tab.id}" aria-label="${runtimeT ? runtimeT('discardTab') : 'Sleep tab'}" data-tooltip="${runtimeT ? runtimeT('discardTab') : 'Sleep tab'}">
+          ${ICONS.moon}
+        </button>` : ''}
+        <button class="chip-action chip-session-save" data-action="save-single-tab-session" data-tab-id="${tab.id}" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" aria-label="${runtimeT ? runtimeT('saveTabSession') : 'Save tab session'}" data-tooltip="${runtimeT ? runtimeT('saveTabSession') : 'Save tab session'}">
+          ${ICONS.archive}
+        </button>
+        <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-id="${tab.id}" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" aria-label="${runtimeT ? runtimeT('saveForLater') : 'Save for later'}" data-tooltip="${runtimeT ? runtimeT('saveForLater') : 'Save for later'}">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
         </button>
-        <button class="chip-action chip-close" data-action="close-single-tab" data-tab-url="${safeUrl}" title="${runtimeT ? runtimeT('closeThisTab') : 'Close this tab'}">
+        <button class="chip-action chip-close" data-action="close-single-tab" data-tab-id="${tab.id}" data-tab-url="${safeUrl}" aria-label="${runtimeT ? runtimeT('closeThisTab') : 'Close this tab'}" data-tooltip="${runtimeT ? runtimeT('closeThisTab') : 'Close this tab'}">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
         </button>
       </div>
     </div>`;
   }).join('') + (extraCount > 0 ? buildOverflowChips(orderedTabs.slice(8), urlCounts) : '');
 
+  const saveGroupButton = `
+      <button class="group-action-icon" type="button" data-action="save-domain-session" data-domain-id="${stableId}" aria-label="${runtimeT ? runtimeT('saveGroupSession') : 'Save group session'}" data-tooltip="${runtimeT ? runtimeT('saveGroupSession') : 'Save group session'}">
+        ${ICONS.archive}
+      </button>`;
   const closeAllButton = `
-      <button class="action-btn close-tabs" type="button" data-action="close-domain-tabs" data-domain-id="${stableId}">
+      <button class="group-action-icon group-action-close" type="button" data-action="close-domain-tabs" data-domain-id="${stableId}" aria-label="${runtimeT ? runtimeT('closeGroup') : 'Close group'}" data-tooltip="${runtimeT ? runtimeT('closeGroup') : 'Close group'}">
         ${ICONS.close}
-        ${runtimeT ? runtimeT('closeGroup') : 'Close group'}
       </button>`;
 
   let actionsHtml = '';
@@ -2147,7 +2502,14 @@ function renderDomainCard(group) {
             </span>
             ${dupeBadge}
           </div>
-          ${closeAllButton}
+          <div class="mission-actions">
+            ${sleepControlEnabled ? `
+            <button class="group-action-icon" type="button" data-action="sleep-domain-tabs" data-domain-id="${stableId}" aria-label="${runtimeT ? runtimeT('sleepAllTabsButton') : 'Sleep all tabs in group'}" data-tooltip="${runtimeT ? runtimeT('sleepAllTabsButton') : 'Sleep all tabs in group'}">
+              ${ICONS.moon}
+            </button>` : ''}
+            ${saveGroupButton}
+            ${closeAllButton}
+          </div>
         </div>
         <div class="mission-pages">${pageChips}</div>
         ${actionsHtml ? `<div class="actions">${actionsHtml}</div>` : ''}
@@ -2173,6 +2535,7 @@ function renderGroupNav(group) {
     <button
       class="group-nav-button"
       data-action="jump-to-domain"
+      data-nav-kind="open-tabs"
       data-group-id="${group.domain}"
       data-domain-id="${stableId}"
       data-tooltip="${safeTooltip}"
@@ -2180,18 +2543,28 @@ function renderGroupNav(group) {
       draggable="false"
     >
       ${iconData.src
-        ? `<img class="group-nav-icon" src="${iconData.src}" alt="" draggable="false" data-fallback-src="${runtimeEscapeHtmlAttribute(iconData.fallbackSrc)}">`
+        ? `<img class="group-nav-icon" src="${iconData.src}" alt="" draggable="false" data-fallback-src="${runtimeEscapeHtmlAttribute(iconData.fallbackSrc)}" data-fallback-srcset="${runtimeEscapeHtmlAttribute(JSON.stringify(iconData.fallbackSources?.slice(1) || []))}">`
         : ''}
       <span class="group-nav-fallback"${iconData.src ? ' style="display:none"' : ''}>${iconData.fallbackLabel}</span>
     </button>`;
 }
 
-function renderGroupNavArea(groups) {
+function renderWorkspacePageSwitch(currentPage = 'home') {
+  const homeActive = currentPage !== 'saved-tabs';
+  const savedActive = currentPage === 'saved-tabs';
+  const homeLabel = runtimeT ? runtimeT('workspacePageHome') : 'Home';
+  const savedLabel = runtimeT ? runtimeT('workspacePageSavedTabs') : 'Saved tabs';
+
+  return `
+    <nav class="workspace-page-switch" id="workspacePageSwitch" aria-label="Workspace pages">
+      <button class="workspace-page-switch-btn${homeActive ? ' is-active' : ''}" type="button" data-action="switch-workspace-page" data-page="home" aria-pressed="${homeActive ? 'true' : 'false'}" aria-controls="homePage">${homeLabel}</button>
+      <button class="workspace-page-switch-btn${savedActive ? ' is-active' : ''}" type="button" data-action="switch-workspace-page" data-page="saved-tabs" aria-pressed="${savedActive ? 'true' : 'false'}" aria-controls="savedTabsPage">${savedLabel}</button>
+    </nav>`;
+}
+
+function renderWorkspaceThemeTools() {
   const languagePreference = runtimeGetLanguagePreference ? runtimeGetLanguagePreference() : 'auto';
   return `
-    <div class="group-nav-list">
-      ${groups.map(group => renderGroupNav(group)).join('')}
-    </div>
     <div class="group-nav-tools">
       <button class="header-theme-trigger" id="themeMenuTrigger" type="button" data-action="toggle-theme-menu" data-tooltip="${runtimeT ? runtimeT('deskSettings') : 'Desk settings'}" aria-label="${runtimeT ? runtimeT('deskSettings') : 'Desk settings'}" aria-expanded="false" aria-controls="themeMenuPanel">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor" aria-hidden="true">
@@ -2202,96 +2575,119 @@ function renderGroupNavArea(groups) {
         </svg>
       </button>
       <div class="theme-menu" id="themeMenuPanel" hidden role="dialog" aria-label="${runtimeT ? runtimeT('deskSettingsPanel') : 'Desk settings panel'}">
-        <div class="theme-menu-section">
-          <div class="theme-menu-row theme-menu-row-inline-choices">
-            <div class="theme-menu-label">${runtimeT ? runtimeT('appearanceMode') : 'Appearance mode'}</div>
-            <div class="theme-mode-options" id="themeModeOptions" role="group" aria-label="${runtimeT ? runtimeT('appearanceMode') : 'Appearance mode'}"></div>
+        <div class="theme-menu-tabs" role="tablist" aria-label="${runtimeT ? runtimeT('deskSettingsPanel') : 'Desk settings panel'}">
+          <button class="theme-menu-tab" id="themeMenuAppearanceTab" type="button" role="tab" data-action="select-theme-menu-tab" data-theme-menu-tab="appearance" aria-controls="themeMenuAppearancePanel" aria-selected="true">${runtimeT ? runtimeT('settingsTabAppearance') : 'Appearance'}</button>
+          <button class="theme-menu-tab" id="themeMenuFeaturesTab" type="button" role="tab" data-action="select-theme-menu-tab" data-theme-menu-tab="features" aria-controls="themeMenuFeaturesPanel" aria-selected="false">${runtimeT ? runtimeT('settingsTabFeatures') : 'Features'}</button>
+        </div>
+        <div class="theme-menu-panel" id="themeMenuAppearancePanel" role="tabpanel" aria-labelledby="themeMenuAppearanceTab" data-theme-menu-panel="appearance">
+          <div class="theme-menu-section">
+            <div class="theme-menu-row theme-menu-row-inline-choices">
+              <div class="theme-menu-label">${runtimeT ? runtimeT('appearanceMode') : 'Appearance mode'}</div>
+              <div class="theme-mode-options" id="themeModeOptions" role="group" aria-label="${runtimeT ? runtimeT('appearanceMode') : 'Appearance mode'}"></div>
+            </div>
           </div>
-        </div>
-        <div class="theme-menu-section">
-          <div class="theme-menu-label">${runtimeT ? runtimeT('deskPalette') : 'Desk palette'}</div>
-          <div class="theme-options" id="themeOptions"></div>
-        </div>
-        <div class="theme-menu-section">
-          <div class="theme-menu-label">${runtimeT ? runtimeT('deskBackdrop') : 'Desk backdrop'}</div>
-          <div class="theme-menu-actions">
-            <button class="theme-menu-action" type="button" data-action="open-background-picker">${runtimeT ? runtimeT('uploadImage') : 'Upload image'}</button>
-            <button class="theme-menu-action is-secondary" type="button" data-action="clear-custom-background">${runtimeT ? runtimeT('clearText') : 'Clear'}</button>
+          <div class="theme-menu-section">
+            <div class="theme-menu-label">${runtimeT ? runtimeT('deskPalette') : 'Desk palette'}</div>
+            <div class="theme-options" id="themeOptions"></div>
           </div>
-        </div>
-        <div class="theme-menu-section">
-          <div class="theme-menu-row theme-menu-row-inline-choices">
-            <div class="theme-menu-label">${runtimeT ? runtimeT('languageLabel') : 'Language'}</div>
-            <div class="theme-language-options" role="group" aria-label="${runtimeT ? runtimeT('languageLabel') : 'Language'}">
-              <button class="theme-language-option ${languagePreference === 'auto' ? 'is-active' : ''}" type="button" data-action="select-language" data-language="auto" aria-pressed="${languagePreference === 'auto'}">${runtimeT ? runtimeT('languageAuto') : 'Auto'}</button>
-              <button class="theme-language-option ${languagePreference === 'en' ? 'is-active' : ''}" type="button" data-action="select-language" data-language="en" aria-pressed="${languagePreference === 'en'}">${runtimeT ? runtimeT('languageEnglish') : 'English'}</button>
-              <button class="theme-language-option ${languagePreference === 'zh-CN' ? 'is-active' : ''}" type="button" data-action="select-language" data-language="zh-CN" aria-pressed="${languagePreference === 'zh-CN'}">${runtimeT ? runtimeT('languageChinese') : 'Chinese'}</button>
+          <div class="theme-menu-section">
+            <div class="theme-menu-label">${runtimeT ? runtimeT('deskBackdrop') : 'Desk backdrop'}</div>
+            <div class="theme-menu-actions">
+              <button class="theme-menu-action" type="button" data-action="open-background-picker">${runtimeT ? runtimeT('uploadImage') : 'Upload image'}</button>
+              <button class="theme-menu-action is-secondary" type="button" data-action="clear-custom-background">${runtimeT ? runtimeT('clearText') : 'Clear'}</button>
+            </div>
+          </div>
+          <div class="theme-menu-section">
+            <div class="theme-menu-row theme-menu-row-inline-choices">
+              <div class="theme-menu-label">${runtimeT ? runtimeT('languageLabel') : 'Language'}</div>
+              <div class="theme-language-options" role="group" aria-label="${runtimeT ? runtimeT('languageLabel') : 'Language'}">
+                <button class="theme-language-option ${languagePreference === 'auto' ? 'is-active' : ''}" type="button" data-action="select-language" data-language="auto" aria-pressed="${languagePreference === 'auto'}">${runtimeT ? runtimeT('languageAuto') : 'Auto'}</button>
+                <button class="theme-language-option ${languagePreference === 'en' ? 'is-active' : ''}" type="button" data-action="select-language" data-language="en" aria-pressed="${languagePreference === 'en'}">${runtimeT ? runtimeT('languageEnglish') : 'English'}</button>
+                <button class="theme-language-option ${languagePreference === 'zh-CN' ? 'is-active' : ''}" type="button" data-action="select-language" data-language="zh-CN" aria-pressed="${languagePreference === 'zh-CN'}">${runtimeT ? runtimeT('languageChinese') : 'Chinese'}</button>
+              </div>
+            </div>
+          </div>
+          <div class="theme-menu-section">
+            <div class="theme-menu-row theme-menu-row-inline-range">
+              <div class="theme-menu-label">${runtimeT ? runtimeT('surfaceDepth') : 'Surface depth'}</div>
+              <input
+                class="theme-range"
+                id="themeTransparencyRange"
+                type="range"
+                aria-label="${runtimeT ? runtimeT('surfaceDepth') : 'Surface depth'}"
+                min="2"
+                max="60"
+                step="1"
+                value="14"
+              >
+              <div class="theme-range-value" id="themeTransparencyValue">14%</div>
+            </div>
+          </div>
+          <div class="theme-menu-section">
+            <div class="theme-menu-row theme-menu-row-inline-range">
+              <div class="theme-menu-label">${runtimeT ? runtimeT('uiScaleLabel') : 'Text size'}</div>
+              <input
+                class="theme-range"
+                id="themeUiScaleRange"
+                type="range"
+                aria-label="${runtimeT ? runtimeT('uiScaleLabel') : 'Text size'}"
+                min="100"
+                max="120"
+                step="1"
+                value="100"
+              >
+              <div class="theme-range-value" id="themeUiScaleValue">100%</div>
+            </div>
+          </div>
+          <div class="theme-menu-section">
+            <div class="theme-menu-row theme-menu-row-inline-range">
+              <div class="theme-menu-label">${runtimeT ? runtimeT('shortcutScaleLabel') : 'Shortcut size'}</div>
+              <input
+                class="theme-range"
+                id="themeShortcutScaleRange"
+                type="range"
+                aria-label="${runtimeT ? runtimeT('shortcutScaleLabel') : 'Shortcut size'}"
+                min="100"
+                max="130"
+                step="1"
+                value="100"
+              >
+              <div class="theme-range-value" id="themeShortcutScaleValue">100%</div>
             </div>
           </div>
         </div>
-        <div class="theme-menu-section">
-          <div class="theme-menu-row theme-menu-row-inline-range">
-            <div class="theme-menu-label">${runtimeT ? runtimeT('surfaceDepth') : 'Surface depth'}</div>
-            <input
-              class="theme-range"
-              id="themeTransparencyRange"
-              type="range"
-              aria-label="${runtimeT ? runtimeT('surfaceDepth') : 'Surface depth'}"
-              min="2"
-              max="60"
-              step="1"
-              value="14"
-            >
-            <div class="theme-range-value" id="themeTransparencyValue">14%</div>
+        <div class="theme-menu-panel" id="themeMenuFeaturesPanel" role="tabpanel" aria-labelledby="themeMenuFeaturesTab" data-theme-menu-panel="features" hidden>
+          <div class="theme-menu-section">
+            <label class="theme-menu-toggle-label theme-menu-toggle-button-row">
+              <button class="theme-toggle-switch ${chromeTabGroupsEnabled ? 'is-active' : ''}" type="button" data-action="toggle-chrome-tab-groups" aria-pressed="${chromeTabGroupsEnabled ? 'true' : 'false'}" aria-label="${runtimeT ? runtimeT('chromeTabGroupsLabel') : 'Chrome tab groups'}"></button>
+              <span class="theme-menu-label theme-menu-toggle-text">${runtimeT ? runtimeT('chromeTabGroupsLabel') : 'Chrome tab groups'}</span>
+            </label>
           </div>
-        </div>
-        <div class="theme-menu-section">
-          <div class="theme-menu-row theme-menu-row-inline-range">
-            <div class="theme-menu-label">${runtimeT ? runtimeT('uiScaleLabel') : 'Text size'}</div>
-            <input
-              class="theme-range"
-              id="themeUiScaleRange"
-              type="range"
-              aria-label="${runtimeT ? runtimeT('uiScaleLabel') : 'Text size'}"
-              min="100"
-              max="120"
-              step="1"
-              value="100"
-            >
-            <div class="theme-range-value" id="themeUiScaleValue">100%</div>
+          <div class="theme-menu-section">
+            <label class="theme-menu-toggle-label theme-menu-toggle-button-row">
+              <button class="theme-toggle-switch ${(typeof themePreferences !== 'undefined' && themePreferences.hitokotoEnabled !== false) ? 'is-active' : ''}" type="button" data-action="toggle-hitokoto" aria-pressed="${(typeof themePreferences !== 'undefined' && themePreferences.hitokotoEnabled !== false) ? 'true' : 'false'}" aria-label="${runtimeT ? runtimeT('hitokotoLabel') : '一言'}"></button>
+              <span class="theme-menu-label theme-menu-toggle-text">${runtimeT ? runtimeT('hitokotoLabel') : '一言'}</span>
+            </label>
           </div>
-        </div>
-        <div class="theme-menu-section">
-          <div class="theme-menu-row theme-menu-row-inline-range">
-            <div class="theme-menu-label">${runtimeT ? runtimeT('shortcutScaleLabel') : 'Shortcut size'}</div>
-            <input
-              class="theme-range"
-              id="themeShortcutScaleRange"
-              type="range"
-              aria-label="${runtimeT ? runtimeT('shortcutScaleLabel') : 'Shortcut size'}"
-              min="100"
-              max="130"
-              step="1"
-              value="100"
-            >
-            <div class="theme-range-value" id="themeShortcutScaleValue">100%</div>
+          <div class="theme-menu-section">
+            <label class="theme-menu-toggle-label theme-menu-toggle-button-row">
+              <button class="theme-toggle-switch ${sleepControlEnabled ? 'is-active' : ''}" type="button" data-action="toggle-sleep-control" aria-pressed="${sleepControlEnabled ? 'true' : 'false'}" aria-label="${runtimeT ? runtimeT('sleepControlLabel') : 'Manual sleep control'}"></button>
+              <span class="theme-menu-label theme-menu-toggle-text">${runtimeT ? runtimeT('sleepControlLabel') : 'Manual sleep control'}</span>
+            </label>
           </div>
-        </div>
-        <div class="theme-menu-section">
-          <label class="theme-menu-toggle-label theme-menu-toggle-button-row">
-            <button class="theme-toggle-switch ${chromeTabGroupsEnabled ? 'is-active' : ''}" type="button" data-action="toggle-chrome-tab-groups" aria-pressed="${chromeTabGroupsEnabled ? 'true' : 'false'}" aria-label="${runtimeT ? runtimeT('chromeTabGroupsLabel') : 'Chrome tab groups'}"></button>
-            <span class="theme-menu-label theme-menu-toggle-text">${runtimeT ? runtimeT('chromeTabGroupsLabel') : 'Chrome tab groups'}</span>
-          </label>
-        </div>
-        <div class="theme-menu-section">
-          <label class="theme-menu-toggle-label theme-menu-toggle-button-row">
-            <button class="theme-toggle-switch ${(typeof themePreferences !== 'undefined' && themePreferences.hitokotoEnabled !== false) ? 'is-active' : ''}" type="button" data-action="toggle-hitokoto" aria-pressed="${(typeof themePreferences !== 'undefined' && themePreferences.hitokotoEnabled !== false) ? 'true' : 'false'}" aria-label="${runtimeT ? runtimeT('hitokotoLabel') : '一言'}"></button>
-            <span class="theme-menu-label theme-menu-toggle-text">${runtimeT ? runtimeT('hitokotoLabel') : '一言'}</span>
-          </label>
         </div>
         <input type="file" id="themeBackgroundInput" accept="image/*" hidden>
       </div>
     </div>`;
+}
+
+function renderGroupNavArea(groups) {
+  return `
+    <div class="group-nav-list" data-nav-kind="open-tabs">
+      ${groups.map(group => renderGroupNav(group)).join('')}
+    </div>
+    ${renderWorkspacePageSwitch('home')}
+    ${renderWorkspaceThemeTools()}`;
 }
 
 function buildElementFromHtml(html) {
@@ -2300,38 +2696,40 @@ function buildElementFromHtml(html) {
   return template.content.firstElementChild || null;
 }
 
+function getWorkspaceTopNavHost() {
+  return document.getElementById('workspaceTopNav');
+}
+
+function syncWorkspaceTopNavMarkup(markup = '', visible = true) {
+  const navHost = getWorkspaceTopNavHost();
+  if (!navHost) return;
+  navHost.innerHTML = markup;
+  navHost.style.display = visible ? 'flex' : 'none';
+  if (typeof renderThemeMenu === 'function') renderThemeMenu();
+}
+
 function renderOpenTabsSummary(realTabs = getRealTabs()) {
   const openTabsSection      = document.getElementById('openTabsSection');
   const openTabsSectionCount = document.getElementById('openTabsSectionCount');
   const openTabsSectionTitle = document.getElementById('openTabsSectionTitle');
-  const openTabsGroupNav     = document.getElementById('openTabsGroupNav');
   const openTabsMissionsEl   = document.getElementById('openTabsMissions');
 
   if (!openTabsSection) return;
 
   if (domainGroups.length > 0) {
     if (openTabsSectionTitle) openTabsSectionTitle.textContent = runtimeT ? runtimeT('openTabsSectionTitle') : 'Open tabs';
-    const tabsWord = runtimeT
-      ? (realTabs.length === 1 ? runtimeT('tabsWordSingular') : runtimeT('tabsWordPlural'))
-      : `tab${realTabs.length !== 1 ? 's' : ''}`;
-    const groupsWord = runtimeT
-      ? (domainGroups.length === 1 ? runtimeT('groupsWordSingular') : runtimeT('groupsWordPlural'))
-      : `group${domainGroups.length !== 1 ? 's' : ''}`;
-    const summary = runtimeT
-      ? runtimeT('sectionSummary', { tabs: realTabs.length, groups: domainGroups.length, tabsWord, groupsWord })
-      : `${realTabs.length} ${tabsWord} across ${domainGroups.length} ${groupsWord}`;
     if (openTabsSectionCount) {
-      openTabsSectionCount.innerHTML = `<span class="section-summary">${summary}</span><button class="action-btn close-tabs section-action" type="button" data-action="close-all-open-tabs">${ICONS.close} ${runtimeT ? runtimeT('closeAllTabsButton') : 'Close all tabs'}</button>`;
+      openTabsSectionCount.innerHTML = `
+        ${sleepControlEnabled ? `<button class="section-icon-action" type="button" data-action="sleep-all-open-tabs" aria-label="${runtimeT ? runtimeT('sleepAllTabsButton') : 'Sleep all tabs'}" data-tooltip="${runtimeT ? runtimeT('sleepAllTabsButton') : 'Sleep all tabs'}">${ICONS.moon}</button>` : ''}
+        <button class="section-icon-action" type="button" data-action="save-current-window-session" aria-label="${runtimeT ? runtimeT('saveSessionButton') : 'Save session'}" data-tooltip="${runtimeT ? runtimeT('saveSessionButton') : 'Save session'}">${ICONS.archive}</button>
+        <button class="section-icon-action section-icon-action-close" type="button" data-action="close-all-open-tabs" aria-label="${runtimeT ? runtimeT('closeAllTabsButton') : 'Close all tabs'}" data-tooltip="${runtimeT ? runtimeT('closeAllTabsButton') : 'Close all tabs'}">${ICONS.close}</button>`;
     }
-    if (openTabsGroupNav) openTabsGroupNav.style.display = 'flex';
+    syncWorkspaceTopNavMarkup(renderGroupNavArea(domainGroups), true);
     openTabsSection.style.display = 'block';
     return;
   }
 
-  if (openTabsGroupNav) {
-    openTabsGroupNav.innerHTML = '';
-    openTabsGroupNav.style.display = 'none';
-  }
+  syncWorkspaceTopNavMarkup(renderGroupNavArea([]), true);
   openTabsSection.style.display = 'block';
   if (openTabsMissionsEl) openTabsMissionsEl.innerHTML = renderMissionsEmptyState();
   if (openTabsSectionCount) openTabsSectionCount.textContent = runtimeT ? runtimeT('emptyTabsCount') : '0 domains';
@@ -2339,8 +2737,8 @@ function renderOpenTabsSummary(realTabs = getRealTabs()) {
 
 function patchOpenTabsDomFromGroups(realTabs = getRealTabs(), changedGroupKeys = []) {
   const missionsEl = document.getElementById('openTabsMissions');
-  const navHost = document.getElementById('openTabsGroupNav');
-  const navListEl = navHost?.querySelector('.group-nav-list');
+  const navHost = getWorkspaceTopNavHost();
+  const navListEl = navHost?.querySelector('.group-nav-list[data-nav-kind="open-tabs"]');
   if (!missionsEl || !navHost || !navListEl) {
     renderOpenTabsArea(realTabs);
     return;
@@ -2488,7 +2886,8 @@ async function buildDomainGroups(realTabs = getRealTabs()) {
       if (tab.url && tab.url.startsWith('file://')) {
         hostname = 'local-files';
       } else {
-        hostname = new URL(tab.url).hostname;
+        const rawHostname = new URL(tab.url).hostname;
+        hostname = runtimeGetPrimaryDomain ? runtimeGetPrimaryDomain(rawHostname) : rawHostname;
       }
       if (!hostname) continue;
 
@@ -2543,33 +2942,20 @@ function renderOpenTabsArea(realTabs = getRealTabs()) {
   const openTabsMissionsEl   = document.getElementById('openTabsMissions');
   const openTabsSectionCount = document.getElementById('openTabsSectionCount');
   const openTabsSectionTitle = document.getElementById('openTabsSectionTitle');
-  const openTabsGroupNav     = document.getElementById('openTabsGroupNav');
 
   if (domainGroups.length > 0 && openTabsSection) {
     if (openTabsSectionTitle) openTabsSectionTitle.textContent = runtimeT ? runtimeT('openTabsSectionTitle') : 'Open tabs';
-    const tabsWord = runtimeT
-      ? (realTabs.length === 1 ? runtimeT('tabsWordSingular') : runtimeT('tabsWordPlural'))
-      : `tab${realTabs.length !== 1 ? 's' : ''}`;
-    const groupsWord = runtimeT
-      ? (domainGroups.length === 1 ? runtimeT('groupsWordSingular') : runtimeT('groupsWordPlural'))
-      : `group${domainGroups.length !== 1 ? 's' : ''}`;
-    const summary = runtimeT
-      ? runtimeT('sectionSummary', { tabs: realTabs.length, groups: domainGroups.length, tabsWord, groupsWord })
-      : `${realTabs.length} ${tabsWord} across ${domainGroups.length} ${groupsWord}`;
     if (openTabsSectionCount) {
-      openTabsSectionCount.innerHTML = `<span class="section-summary">${summary}</span><button class="action-btn close-tabs section-action" type="button" data-action="close-all-open-tabs">${ICONS.close} ${runtimeT ? runtimeT('closeAllTabsButton') : 'Close all tabs'}</button>`;
+      openTabsSectionCount.innerHTML = `
+        ${sleepControlEnabled ? `<button class="section-icon-action" type="button" data-action="sleep-all-open-tabs" aria-label="${runtimeT ? runtimeT('sleepAllTabsButton') : 'Sleep all tabs'}" data-tooltip="${runtimeT ? runtimeT('sleepAllTabsButton') : 'Sleep all tabs'}">${ICONS.moon}</button>` : ''}
+        <button class="section-icon-action" type="button" data-action="save-current-window-session" aria-label="${runtimeT ? runtimeT('saveSessionButton') : 'Save session'}" data-tooltip="${runtimeT ? runtimeT('saveSessionButton') : 'Save session'}">${ICONS.archive}</button>
+        <button class="section-icon-action section-icon-action-close" type="button" data-action="close-all-open-tabs" aria-label="${runtimeT ? runtimeT('closeAllTabsButton') : 'Close all tabs'}" data-tooltip="${runtimeT ? runtimeT('closeAllTabsButton') : 'Close all tabs'}">${ICONS.close}</button>`;
     }
     if (openTabsMissionsEl) openTabsMissionsEl.innerHTML = domainGroups.map(g => renderDomainCard(g)).join('');
-    if (openTabsGroupNav) {
-      openTabsGroupNav.innerHTML = renderGroupNavArea(domainGroups);
-      openTabsGroupNav.style.display = 'flex';
-    }
+    syncWorkspaceTopNavMarkup(renderGroupNavArea(domainGroups), true);
     openTabsSection.style.display = 'block';
   } else if (openTabsSection) {
-    if (openTabsGroupNav) {
-      openTabsGroupNav.innerHTML = '';
-      openTabsGroupNav.style.display = 'none';
-    }
+    syncWorkspaceTopNavMarkup(renderGroupNavArea([]), true);
     openTabsSection.style.display = 'block';
     if (openTabsMissionsEl) openTabsMissionsEl.innerHTML = renderMissionsEmptyState();
     if (openTabsSectionCount) openTabsSectionCount.textContent = runtimeT ? runtimeT('emptyTabsCount') : '0 domains';
@@ -2638,7 +3024,7 @@ async function renderStaticDashboard() {
   if (hitokotoEnabled && hitokotoEl && hitokotoTextEl && hitokotoFromEl) {
     const hasCachedHitokoto = renderCachedHitokoto(hitokotoTextEl, hitokotoFromEl);
     hitokotoEl.style.display = hasCachedHitokoto ? '' : 'none';
-    void refreshHitokotoInBackground(hitokotoTextEl, hitokotoFromEl);
+    void warmHitokotoCacheInBackground();
   } else if (hitokotoEl) {
     hitokotoEl.style.display = 'none';
   }
@@ -2663,6 +3049,10 @@ async function renderStaticDashboard() {
   
   // Setup image error handlers for CSP compliance
   setupImageErrorHandlers();
+
+  if (document.body.classList.contains('showing-saved-tabs-page')) {
+    await globalThis.TabHarborSessionManager?.renderSavedTabsPage?.();
+  }
 }
 
 async function renderDashboard() {
@@ -2672,9 +3062,7 @@ async function renderDashboard() {
   }
 }
 
-async function collapseChromeGroupsForCurrentTabHarborTab() {
-  if (typeof collapseChromeTabGroupsInWindow !== 'function') return;
-
+async function resolveCurrentDashboardTab() {
   let currentTab = null;
   try {
     currentTab = await chrome.tabs.getCurrent();
@@ -2682,14 +3070,29 @@ async function collapseChromeGroupsForCurrentTabHarborTab() {
     currentTab = null;
   }
 
-  if (!currentTab?.windowId) {
+  if (!currentTab?.id || !currentTab?.windowId) {
     try {
       const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      currentTab = activeTab || null;
+      currentTab = activeTab || currentTab || null;
     } catch {
-      currentTab = null;
+      currentTab = currentTab || null;
     }
   }
+
+  return currentTab;
+}
+
+function shouldSkipStartupTabChange(message = {}) {
+  if (Date.now() > dashboardStartupTabChangeIgnoreUntil) return false;
+  if (message.source !== 'tabs.onCreated' && message.source !== 'tabs.onUpdated') return false;
+  if (currentDashboardTabId == null || message.triggerTabId == null) return false;
+  return Number(message.triggerTabId) === Number(currentDashboardTabId);
+}
+
+async function collapseChromeGroupsForCurrentTabHarborTab() {
+  if (typeof collapseChromeTabGroupsInWindow !== 'function') return;
+
+  const currentTab = await resolveCurrentDashboardTab();
 
   const extensionId = chrome.runtime.id;
   const newtabUrl = `chrome-extension://${extensionId}/index.html`;
@@ -2724,6 +3127,12 @@ document.addEventListener('click', async (e) => {
 
   if (action === 'toggle-theme-menu') {
     setThemeMenuOpen(!themeMenuOpen);
+    return;
+  }
+
+  if (action === 'select-theme-menu-tab') {
+    themeMenuActiveTab = actionEl.dataset.themeMenuTab === 'features' ? 'features' : 'appearance';
+    renderThemeMenu();
     return;
   }
 
@@ -2826,6 +3235,14 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
+  if (action === 'toggle-sleep-control') {
+    const nextEnabled = sleepControlEnabled !== true;
+    await saveThemePreferences({ sleepControlEnabled: nextEnabled });
+    sleepControlEnabled = nextEnabled;
+    await renderDashboard();
+    return;
+  }
+
   const card = actionEl.closest('.mission-card');
 
   if (action === 'rename-session-group') {
@@ -2857,7 +3274,8 @@ document.addEventListener('click', async (e) => {
   if (action === 'focus-tab') {
     if (Date.now() < suppressPageChipClickUntil) return;
     const tabUrl = actionEl.dataset.tabUrl;
-    if (tabUrl) await focusTab(tabUrl);
+    const tabId = actionEl.dataset.tabId || '';
+    if (tabUrl || tabId) await focusTab(tabUrl, tabId);
     return;
   }
 
@@ -2881,15 +3299,15 @@ document.addEventListener('click', async (e) => {
   if (action === 'close-single-tab') {
     e.stopPropagation(); // don't trigger parent chip's focus-tab
     const tabUrl = actionEl.dataset.tabUrl;
-    if (!tabUrl) return;
+    const tabId = actionEl.dataset.tabId || '';
+    if (!tabUrl && !tabId) return;
 
     // Suppress auto-refresh to prevent animation spam
     window.__suppressAutoRefreshUntil = Date.now() + 2000;
 
-    // Close the tab in Chrome directly
-    const allTabs = await chrome.tabs.query({});
-    const match   = allTabs.find(t => t.url === tabUrl);
-    if (match) await chrome.tabs.remove(match.id);
+    // Close the tab in Chrome directly. Prefer id so suspended/canonical URLs
+    // and duplicate pages cannot close the wrong tab.
+    await removeOpenTabByIdOrUrl(tabId, tabUrl);
     await fetchOpenTabs();
     await loadSessionGroups(openTabs.map(tab => tab.id));
 
@@ -2944,12 +3362,35 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
+  // ---- Discard (sleep) a single tab ----
+  if (action === 'discard-tab') {
+    e.stopPropagation();
+    const tabId = actionEl.dataset.tabId;
+    if (!tabId) return;
+
+    window.__suppressAutoRefreshUntil = Date.now() + 2000;
+
+    const discarded = await discardTab(Number(tabId));
+    if (!discarded) {
+      showToast(runtimeT ? runtimeT('toastTabDiscardFailed') || 'Failed to sleep tab' : 'Failed to sleep tab');
+      return;
+    }
+
+    await fetchOpenTabs();
+    await loadSessionGroups(openTabs.map(tab => tab.id));
+    await renderDashboard();
+
+    showToast(runtimeT ? runtimeT('toastTabDiscarded') : 'Tab sleeping');
+    return;
+  }
+
   // ---- Save a single tab for later (then close it) ----
   if (action === 'defer-single-tab') {
     e.stopPropagation();
     const tabUrl   = actionEl.dataset.tabUrl;
+    const tabId    = actionEl.dataset.tabId || '';
     const tabTitle = actionEl.dataset.tabTitle || tabUrl;
-    if (!tabUrl) return;
+    if (!tabUrl && !tabId) return;
 
     // Suppress auto-refresh to prevent animation spam
     window.__suppressAutoRefreshUntil = Date.now() + 2000;
@@ -2963,10 +3404,8 @@ document.addEventListener('click', async (e) => {
       return;
     }
 
-    // Close the tab in Chrome
-    const allTabs = await chrome.tabs.query({});
-    const match   = allTabs.find(t => t.url === tabUrl);
-    if (match) await chrome.tabs.remove(match.id);
+    // Close the tab in Chrome. Prefer id for suspended tabs and duplicates.
+    await removeOpenTabByIdOrUrl(tabId, tabUrl);
     await fetchOpenTabs();
     await loadSessionGroups(openTabs.map(tab => tab.id));
 
@@ -2981,6 +3420,24 @@ document.addEventListener('click', async (e) => {
 
     showToast(runtimeT ? runtimeT('toastSavedForLater') : 'Saved for later');
     await renderDeferredColumn();
+    return;
+  }
+
+  // ---- Save a single tab as its own session snapshot (then close it) ----
+  if (action === 'save-single-tab-session') {
+    e.stopPropagation();
+    const tabId = actionEl.dataset.tabId || '';
+    if (!tabId) return;
+
+    try {
+      const result = await saveSelectedTabSession([tabId], 'single-tab');
+      showToast(runtimeT
+        ? runtimeT('toastSessionSaved', { count: result?.session?.tabs?.length || 0 })
+        : 'Session saved');
+    } catch (err) {
+      console.error('[tab-harbor] Failed to save tab session:', err);
+      showToast(runtimeT ? runtimeT('toastSessionActionFailed') : 'Could not update saved tabs');
+    }
     return;
   }
 
@@ -3115,6 +3572,81 @@ document.addEventListener('click', async (e) => {
 
     const statTabs = document.getElementById('statTabs');
     if (statTabs) statTabs.textContent = openTabs.length;
+    return;
+  }
+
+  // ---- Save a whole domain group as one session snapshot (then close it) ----
+  if (action === 'save-domain-session') {
+    const domainId = actionEl.dataset.domainId || '';
+    const group = domainGroups.find(g => getStableGroupId(g.domain) === domainId);
+    if (!group) return;
+
+    const tabIds = getOrderedUniqueTabsForGroup(group)
+      .map(tab => String(tab?.id || ''))
+      .filter(Boolean);
+    if (!tabIds.length) return;
+
+    try {
+      const result = await saveSelectedTabSession(tabIds, 'group');
+      showToast(runtimeT
+        ? runtimeT('toastSessionSaved', { count: result?.session?.tabs?.length || 0 })
+        : 'Session saved');
+    } catch (err) {
+      console.error('[tab-harbor] Failed to save group session:', err);
+      showToast(runtimeT ? runtimeT('toastSessionActionFailed') : 'Could not update saved tabs');
+    }
+    return;
+  }
+
+  // ---- Sleep all tabs in a domain group ----
+  if (action === 'sleep-domain-tabs') {
+    const domainId = actionEl.dataset.domainId || '';
+    const group = domainGroups.find(g => getStableGroupId(g.domain) === domainId);
+    if (!group) return;
+
+    const tabs = getOrderedUniqueTabsForGroup(group).filter(t => !t.active);
+    if (!tabs.length) return;
+
+    window.__suppressAutoRefreshUntil = Date.now() + 2000;
+
+    const results = await Promise.all(tabs.map(t => discardTab(t.id)));
+    const succeeded = results.filter(Boolean).length;
+    if (!succeeded) {
+      showToast(runtimeT ? runtimeT('toastTabDiscardFailed') || 'Failed to sleep tabs' : 'Failed to sleep tabs');
+      return;
+    }
+
+    await fetchOpenTabs();
+    await loadSessionGroups(openTabs.map(tab => tab.id));
+    await renderDashboard();
+
+    showToast(runtimeT
+      ? runtimeT('toastTabsDiscarded', { count: succeeded })
+      : `${succeeded} tabs sleeping`);
+    return;
+  }
+
+  // ---- Sleep all open tabs ----
+  if (action === 'sleep-all-open-tabs') {
+    const allTabs = getRealTabs().filter(t => !t.active);
+    if (!allTabs.length) return;
+
+    window.__suppressAutoRefreshUntil = Date.now() + 2000;
+
+    const results = await Promise.all(allTabs.map(t => discardTab(t.id)));
+    const succeeded = results.filter(Boolean).length;
+    if (!succeeded) {
+      showToast(runtimeT ? runtimeT('toastTabDiscardFailed') || 'Failed to sleep tabs' : 'Failed to sleep tabs');
+      return;
+    }
+
+    await fetchOpenTabs();
+    await loadSessionGroups(openTabs.map(tab => tab.id));
+    await renderDashboard();
+
+    showToast(runtimeT
+      ? runtimeT('toastTabsDiscarded', { count: succeeded })
+      : `${succeeded} tabs sleeping`);
     return;
   }
 
@@ -3548,7 +4080,7 @@ document.addEventListener('pointercancel', async (e) => {
 });
 
 document.addEventListener('pointerdown', (e) => {
-  const button = e.target.closest('.group-nav-button');
+  const button = e.target.closest('.group-nav-button[data-nav-kind="open-tabs"]');
   if (!button) return;
 
   draggedGroupId = button.dataset.groupId || '';
@@ -3839,7 +4371,15 @@ function setupImageErrorHandlers() {
 async function initializeDashboardRuntime() {
   injectDynamicAnimationStyles();
   primeEntryAnimations();
+  const currentTab = await resolveCurrentDashboardTab();
+  currentDashboardTabId = currentTab?.id ?? null;
+  dashboardStartupTabChangeIgnoreUntil = Date.now() + 2000;
+  window.__suppressAutoRefreshUntil = Math.max(
+    window.__suppressAutoRefreshUntil || 0,
+    Date.now() + 2000
+  );
   await loadThemePreferences();
+  sleepControlEnabled = (typeof themePreferences !== 'undefined' && themePreferences.sleepControlEnabled === true);
   if (typeof loadChromeTabGroupsSetting === 'function') {
     chromeTabGroupsEnabled = await loadChromeTabGroupsSetting();
   }
@@ -3876,6 +4416,10 @@ function setupTabChangeListener() {
     // console.log('[tab-harbor] Received message:', message);
     
     if (message.action === 'tabs-changed') {
+      if (shouldSkipStartupTabChange(message)) {
+        return;
+      }
+
       // Skip refresh if we just performed a tab action ourselves
       // This prevents animation spam when closing tabs from the dashboard
       if (Date.now() < (window.__suppressAutoRefreshUntil || 0)) {
@@ -3924,5 +4468,14 @@ globalThis.TabHarborDashboardRuntime = {
   initializeDashboardRuntime,
   mountDashboardRuntime,
   fetchOpenTabs,
+  getTabSessionPickerContext,
   getOpenTabs: () => openTabs,
+  renderDashboard,
+  renderWorkspacePageSwitch,
+  renderWorkspaceThemeTools,
+  syncWorkspaceTopNavMarkup,
+  restoreSavedTabToBrowser,
+  restoreSavedTabSession,
+  saveCurrentWindowTabSession,
+  saveSelectedTabSession,
 };

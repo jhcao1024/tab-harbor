@@ -20,6 +20,7 @@ const {
 } = globalThis.TabOutListOrder || {};
 
 let themeMenuOpen = false;
+let themeMenuActiveTab = 'appearance';
 let shortcutEditorState = {
   open: false,
   mode: 'create',
@@ -59,8 +60,12 @@ const FOCUSABLE_SELECTOR = [
 
 const THEME_MODE_ORDER = ['system', 'light', 'dark'];
 const THEME_PALETTE_ORDER = ['paper', 'sage', 'mist', 'blush'];
+const SAVED_SESSION_RESTORE_MODE_ORDER = ['current-window', 'new-window'];
+const SAVED_SESSION_NAV_DISPLAY_MODE_ORDER = ['icon', 'name'];
 const VALID_THEME_MODES = new Set(THEME_MODE_ORDER);
 const VALID_THEME_PALETTES = new Set(THEME_PALETTE_ORDER);
+const VALID_SAVED_SESSION_RESTORE_MODES = new Set(SAVED_SESSION_RESTORE_MODE_ORDER);
+const VALID_SAVED_SESSION_NAV_DISPLAY_MODES = new Set(SAVED_SESSION_NAV_DISPLAY_MODE_ORDER);
 const THEME_MODE_LABEL_KEYS = {
   system: 'themeModeSystem',
   light: 'themeModeLight',
@@ -244,6 +249,9 @@ let themePreferences = {
   uiScale: 100,
   shortcutScale: 100,
   hitokotoEnabled: true,
+  sleepControlEnabled: false,
+  savedSessionRestoreMode: 'new-window',
+  savedSessionNavDisplayMode: 'name',
 };
 
 let systemThemeMediaQuery = null;
@@ -267,6 +275,8 @@ function normalizeThemePreferences(input) {
   const shortcutScale = Number.isFinite(rawShortcutScale)
     ? Math.min(130, Math.max(100, Math.round(rawShortcutScale)))
     : 100;
+  const rawSavedSessionRestoreMode = String(next.savedSessionRestoreMode || 'new-window');
+  const rawSavedSessionNavDisplayMode = String(next.savedSessionNavDisplayMode || 'name');
   return {
     mode: VALID_THEME_MODES.has(rawMode) ? rawMode : 'system',
     paletteId: VALID_THEME_PALETTES.has(rawPaletteId) ? rawPaletteId : 'paper',
@@ -275,7 +285,18 @@ function normalizeThemePreferences(input) {
     uiScale,
     shortcutScale,
     hitokotoEnabled: next.hitokotoEnabled !== false,
+    sleepControlEnabled: next.sleepControlEnabled === true,
+    savedSessionRestoreMode: VALID_SAVED_SESSION_RESTORE_MODES.has(rawSavedSessionRestoreMode) ? rawSavedSessionRestoreMode : 'new-window',
+    savedSessionNavDisplayMode: VALID_SAVED_SESSION_NAV_DISPLAY_MODES.has(rawSavedSessionNavDisplayMode) ? rawSavedSessionNavDisplayMode : 'name',
   };
+}
+
+function getSavedSessionRestoreMode(preferences = themePreferences) {
+  return normalizeThemePreferences(preferences).savedSessionRestoreMode;
+}
+
+function getSavedSessionNavDisplayMode(preferences = themePreferences) {
+  return normalizeThemePreferences(preferences).savedSessionNavDisplayMode;
 }
 
 function normalizeQuickShortcuts(input) {
@@ -544,6 +565,7 @@ function renderThemeMenu() {
 
   trigger.setAttribute('aria-expanded', String(themeMenuOpen));
   panel.hidden = !themeMenuOpen;
+  const activeThemeMenuTab = themeMenuActiveTab === 'features' ? 'features' : 'appearance';
   transparencyRange.value = String(themePreferences.surfaceOpacity);
   transparencyValue.textContent = `${themePreferences.surfaceOpacity}%`;
   uiScaleRange.value = String(themePreferences.uiScale);
@@ -584,6 +606,16 @@ function renderThemeMenu() {
     </button>
   `;
   }).join('');
+
+  panel.querySelectorAll('[data-theme-menu-panel]').forEach(item => {
+    const isActive = item.dataset.themeMenuPanel === activeThemeMenuTab;
+    item.hidden = !isActive;
+  });
+  panel.querySelectorAll('[data-theme-menu-tab]').forEach(item => {
+    const isActive = item.dataset.themeMenuTab === activeThemeMenuTab;
+    item.classList.toggle('is-active', isActive);
+    item.setAttribute('aria-selected', String(isActive));
+  });
 }
 
 async function getQuickShortcuts() {
@@ -2102,8 +2134,18 @@ async function saveThemePreferences(nextPreferences) {
   return themePreferences;
 }
 
+async function saveSavedSessionRestoreMode(mode) {
+  return saveThemePreferences({ savedSessionRestoreMode: mode });
+}
+
+async function saveSavedSessionNavDisplayMode(mode) {
+  return saveThemePreferences({ savedSessionNavDisplayMode: mode });
+}
+
 globalThis.TabOutThemeControls = {
   filterRealTabs,
+  getSavedSessionNavDisplayMode,
+  getSavedSessionRestoreMode,
   getResolvedThemeDefinition,
   getResolvedTone,
   getQuickShortcuts,
@@ -2112,6 +2154,8 @@ globalThis.TabOutThemeControls = {
   normalizeQuickShortcuts,
   normalizeThemePreferences,
   removeQuickShortcutById,
+  saveSavedSessionNavDisplayMode,
+  saveSavedSessionRestoreMode,
   saveQuickShortcutOrder,
   saveQuickShortcuts,
   syncPopupTheme,

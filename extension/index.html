@@ -18,7 +18,9 @@
 <body>
   <div class="container">
 
+    <div class="group-nav group-nav-wide" id="workspaceTopNav" style="display:none"></div>
 
+    <main class="workspace-page is-active" id="homePage" data-workspace-page="home">
 
     <!-- ================================================================
        TAB HARBOR DUPES BANNER — appears when you have extra Tab Harbor tabs open
@@ -39,8 +41,6 @@
       </div>
       <button class="tab-cleanup-btn" data-action="close-tabout-dupes">Close extras</button>
     </div>
-
-    <div class="group-nav group-nav-wide" id="openTabsGroupNav" style="display:none"></div>
 
     <!-- ================================================================
        MAIN CONTENT AREA — left column for open tabs, right rail for
@@ -263,6 +263,24 @@
             target="_top">OO</a></span>
       </div>
     </footer>
+    </main>
+
+    <main class="workspace-page" id="savedTabsPage" data-workspace-page="saved-tabs" hidden>
+      <div class="dashboard-columns saved-tabs-columns">
+        <section class="active-section saved-sessions-section">
+          <div class="section-header">
+            <h2>Saved sessions</h2>
+            <div class="section-line"></div>
+            <div class="section-count" id="savedSessionsCount"></div>
+          </div>
+          <div class="saved-sessions-list" id="savedSessionsList"></div>
+          <div class="saved-sessions-empty" id="savedSessionsEmpty" hidden>
+            No saved sessions yet. Save a window when you want the memory back without losing the trail.
+          </div>
+        </section>
+        <div class="page-header saved-tabs-header-spacer" aria-hidden="true"></div>
+      </div>
+    </main>
 
   </div><!-- end .container -->
 
@@ -427,6 +445,9 @@
   <script src="background-image.js"></script>
   <script src="i18n.js"></script>
   <script src="ui-helpers.js"></script>
+  <script src="tab-url-utils.js"></script>
+  <script src="tab-sessions.js"></script>
+  <script src="session-manager.js"></script>
   <script src="theme-controls.js"></script>
   <script src="drawer-manager.js"></script>
   <script src="chrome-tab-groups-import.js"></script>

@@ -54,12 +54,16 @@ test('normalizeThemePreferences keeps explicit mode and palette values', () => {
     surfaceOpacity: 9,
     uiScale: 112,
     shortcutScale: 124,
+    savedSessionRestoreMode: 'current-window',
+    savedSessionNavDisplayMode: 'icon',
   });
   assert.equal(result.mode, 'system');
   assert.equal(result.paletteId, 'blush');
   assert.equal(result.surfaceOpacity, 9);
   assert.equal(result.uiScale, 112);
   assert.equal(result.shortcutScale, 124);
+  assert.equal(result.savedSessionRestoreMode, 'current-window');
+  assert.equal(result.savedSessionNavDisplayMode, 'icon');
 });
 
 test('normalizeThemePreferences clamps size controls to calm readable ranges', () => {
@@ -70,6 +74,21 @@ test('normalizeThemePreferences clamps size controls to calm readable ranges', (
   const large = normalizeThemePreferences({ uiScale: 180, shortcutScale: 180 });
   assert.equal(large.uiScale, 120);
   assert.equal(large.shortcutScale, 130);
+});
+
+test('normalizeThemePreferences defaults saved session restore mode to new-window', () => {
+  const result = normalizeThemePreferences({});
+  assert.equal(result.savedSessionRestoreMode, 'new-window');
+  assert.equal(result.savedSessionNavDisplayMode, 'name');
+});
+
+test('normalizeThemePreferences falls back to new-window for invalid saved session restore mode', () => {
+  const result = normalizeThemePreferences({
+    savedSessionRestoreMode: 'hidden-window',
+    savedSessionNavDisplayMode: 'label',
+  });
+  assert.equal(result.savedSessionRestoreMode, 'new-window');
+  assert.equal(result.savedSessionNavDisplayMode, 'name');
 });
 
 test('getResolvedTone follows system preference when mode is system', () => {

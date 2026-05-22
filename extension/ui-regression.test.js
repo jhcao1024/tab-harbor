@@ -12,11 +12,168 @@ const runtimeJs = fs.readFileSync(path.join(__dirname, 'dashboard-runtime.js'), 
 const themeJs = fs.readFileSync(path.join(__dirname, 'theme-controls.js'), 'utf8');
 const drawerJs = fs.readFileSync(path.join(__dirname, 'drawer-manager.js'), 'utf8');
 const helperJs = fs.readFileSync(path.join(__dirname, 'ui-helpers.js'), 'utf8');
+const tabSessionsJs = fs.existsSync(path.join(__dirname, 'tab-sessions.js'))
+  ? fs.readFileSync(path.join(__dirname, 'tab-sessions.js'), 'utf8')
+  : '';
+const sessionManagerJs = fs.existsSync(path.join(__dirname, 'session-manager.js'))
+  ? fs.readFileSync(path.join(__dirname, 'session-manager.js'), 'utf8')
+  : '';
 const popupJs = fs.readFileSync(path.join(__dirname, 'popup', 'popup.js'), 'utf8');
 const popupHtml = fs.readFileSync(path.join(__dirname, 'popup', 'popup.html'), 'utf8');
 const configJs = fs.readFileSync(path.join(__dirname, 'config.js'), 'utf8');
 const configLoaderJs = fs.readFileSync(path.join(__dirname, 'config-loader.js'), 'utf8');
 const appJs = [appEntryJs, runtimeJs, themeJs, drawerJs, helperJs].join('\n');
+
+test('saved tabs page scripts load before dashboard runtime and expose a top page selector', () => {
+  assert.match(html, /id="workspaceTopNav"/);
+  assert.match(html, /id="homePage"/);
+  assert.match(html, /id="savedTabsPage"/);
+  assert.match(runtimeJs, /id="workspacePageSwitch"/);
+  assert.match(runtimeJs, /function renderWorkspacePageSwitch\(currentPage = 'home'\)/);
+  assert.match(runtimeJs, /data-action="switch-workspace-page"[\s\S]*data-page="home"/);
+  assert.match(runtimeJs, /data-action="switch-workspace-page"[\s\S]*data-page="saved-tabs"/);
+  assert.match(runtimeJs, /function renderWorkspaceThemeTools\(\) \{\s*const languagePreference = runtimeGetLanguagePreference \? runtimeGetLanguagePreference\(\) : 'auto';/);
+  assert.match(runtimeJs, /renderWorkspaceThemeTools\(\)/);
+  assert.match(runtimeJs, /syncWorkspaceTopNavMarkup/);
+  assert.match(runtimeJs, /id="themeMenuTrigger"/);
+  assert.match(sessionManagerJs, /renderSavedTabsNavArea/);
+  assert.match(sessionManagerJs, /saved-session-nav-button/);
+  assert.match(sessionManagerJs, /managerGetGroupIcon/);
+  assert.match(html, /<script src="tab-url-utils\.js"><\/script>[\s\S]*<script src="tab-sessions\.js"><\/script>[\s\S]*<script src="session-manager\.js"><\/script>[\s\S]*<script src="dashboard-runtime\.js"><\/script>/);
+});
+
+test('workspace top selector stays mounted when open tabs become empty', () => {
+  assert.match(runtimeJs, /function renderGroupNavArea\(groups\)/);
+  assert.match(runtimeJs, /renderWorkspacePageSwitch\('home'\)/);
+  assert.match(runtimeJs, /renderWorkspaceThemeTools\(\)/);
+  assert.match(runtimeJs, /function renderOpenTabsSummary\(realTabs = getRealTabs\(\)\) \{[\s\S]*syncWorkspaceTopNavMarkup\(renderGroupNavArea\(domainGroups\), true\);[\s\S]*syncWorkspaceTopNavMarkup\(renderGroupNavArea\(\[\]\), true\);/);
+  assert.match(runtimeJs, /function renderOpenTabsArea\(realTabs = getRealTabs\(\)\) \{[\s\S]*syncWorkspaceTopNavMarkup\(renderGroupNavArea\(domainGroups\), true\);[\s\S]*syncWorkspaceTopNavMarkup\(renderGroupNavArea\(\[\]\), true\);/);
+  assert.doesNotMatch(runtimeJs, /renderOpenTabsSummary[\s\S]*syncWorkspaceTopNavMarkup\('', false\)/);
+  assert.doesNotMatch(runtimeJs, /renderOpenTabsArea[\s\S]*syncWorkspaceTopNavMarkup\('', false\)/);
+});
+
+test('saved tabs page keeps session management while home owns session save actions', () => {
+  assert.match(html, /id="savedSessionsList"/);
+  assert.doesNotMatch(html, /class="saved-tabs-page-title"/);
+  assert.doesNotMatch(html, /id="sessionPicker"/);
+  assert.doesNotMatch(html, /data-action="toggle-session-picker"/);
+  assert.doesNotMatch(html, /data-action="save-selected-session"/);
+  assert.doesNotMatch(html, /Keep a window or a handpicked set of tabs, then bring it back when the desk is ready\./);
+  assert.match(runtimeJs, /data-action="save-current-window-session"/);
+  assert.match(runtimeJs, /class="section-icon-action"/);
+  assert.match(runtimeJs, /class="section-icon-action section-icon-action-close"/);
+  assert.match(runtimeJs, /data-tooltip="\$\{runtimeT \? runtimeT\('saveSessionButton'\) : 'Save session'\}"/);
+  assert.doesNotMatch(runtimeJs, /section-summary/);
+  assert.match(runtimeJs, /data-action="save-domain-session"/);
+  assert.match(runtimeJs, /data-action="save-single-tab-session"/);
+  assert.match(sessionManagerJs, /const SAVED_TAB_SESSION_ORDER_KEY = 'savedTabSessionOrder'/);
+  assert.match(sessionManagerJs, /runtime\.syncWorkspaceTopNavMarkup\(renderSavedTabsNavArea\(sessions\), true\)/);
+  assert.match(sessionManagerJs, /data-action="rename-saved-session"/);
+  assert.match(sessionManagerJs, /data-action="submit-saved-session-rename"/);
+  assert.match(sessionManagerJs, /managerRenameSavedTabSession/);
+  assert.match(sessionManagerJs, /managerUpdateSavedTabSessionTabs/);
+  assert.doesNotMatch(sessionManagerJs, /saved-session-group-chip/);
+  assert.match(sessionManagerJs, /data-action="restore-tab-session"/);
+  assert.match(sessionManagerJs, /class="group-action-icon saved-session-restore"/);
+  assert.match(sessionManagerJs, /data-action="restore-saved-session-tab"/);
+  assert.match(sessionManagerJs, /data-action="delete-tab-session"/);
+  assert.match(sessionManagerJs, /data-action="delete-saved-session-tab"/);
+  assert.doesNotMatch(sessionManagerJs, /saved-session-tab-url/);
+});
+
+test('home and saved section headers share a fixed title column and top nav stays single-row', () => {
+  const css = fs.readFileSync(path.join(__dirname, 'style.css'), 'utf8');
+
+  assert.match(css, /#openTabsSection \.section-header h2,\s*\.saved-sessions-section \.section-header h2 \{[\s\S]*width:\s*13ch;/);
+  assert.match(css, /#openTabsSection \.section-count,\s*\.saved-sessions-section \.section-count \{[\s\S]*width:\s*96px;/);
+  assert.match(css, /\.group-nav-wide \{[\s\S]*min-height:\s*40px;[\s\S]*flex-wrap:\s*nowrap;[\s\S]*align-items:\s*center;/);
+  assert.match(css, /\.group-nav-list \{[\s\S]*flex-wrap:\s*nowrap;/);
+  assert.match(css, /\.group-nav-list \{[\s\S]*min-height:\s*40px;/);
+  assert.match(css, /\.group-nav-list \{[\s\S]*overflow-x:\s*auto;/);
+});
+
+test('group close control is icon-only and tab rows expose session save actions', () => {
+  assert.match(runtimeJs, /class="group-action-icon group-action-close"/);
+  assert.match(runtimeJs, /data-action="close-domain-tabs"[\s\S]*aria-label="/);
+  assert.match(runtimeJs, /data-action="close-domain-tabs"[\s\S]*data-tooltip="/);
+  assert.match(runtimeJs, /class="mission-actions"/);
+  assert.match(runtimeJs, /class="chip-action chip-session-save"/);
+  assert.match(runtimeJs, /class="chip-action chip-session-save"[\s\S]*data-tooltip="/);
+  assert.match(helperJs, /archive: `<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" viewBox="0 0 1024 1024" fill="currentColor" aria-hidden="true"><path d="M845\.312 0\.512H32\.512v1022\.976h958\.976v-876\.8L845\.312 0\.512z/);
+});
+
+test('desk settings separates appearance and feature controls', () => {
+  const css = fs.readFileSync(path.join(__dirname, 'style.css'), 'utf8');
+
+  assert.match(runtimeJs, /class="theme-menu-tabs" role="tablist"/);
+  assert.match(runtimeJs, /data-theme-menu-tab="appearance"[\s\S]*data-theme-menu-tab="features"/);
+  assert.match(runtimeJs, /id="themeMenuAppearancePanel"[\s\S]*id="themeModeOptions"[\s\S]*id="themeOptions"/);
+  assert.match(runtimeJs, /id="themeMenuFeaturesPanel"[\s\S]*data-action="toggle-chrome-tab-groups"[\s\S]*data-action="toggle-hitokoto"[\s\S]*data-action="toggle-sleep-control"/);
+  assert.match(runtimeJs, /if \(action === 'select-theme-menu-tab'\)/);
+  assert.match(themeJs, /let themeMenuActiveTab = 'appearance';/);
+  assert.match(themeJs, /querySelectorAll\('\[data-theme-menu-panel\]'\)/);
+  assert.match(css, /\.theme-menu-tab \{[\s\S]*border:\s*none;[\s\S]*border-radius:\s*0;/);
+});
+
+test('manual sleep control places per-tab moon action first', () => {
+  assert.match(runtimeJs, /function buildOverflowChips[\s\S]*<div class="chip-actions">\s*\$\{sleepControlEnabled && !tab\.active \? `\s*<button class="chip-action chip-discard"[\s\S]*<button class="chip-action chip-session-save"/);
+  assert.match(runtimeJs, /function renderDomainCard[\s\S]*<div class="chip-actions">\s*\$\{sleepControlEnabled && !tab\.active \? `<button class="chip-action chip-discard"[\s\S]*<button class="chip-action chip-session-save"/);
+});
+
+test('icon-only actions use themed tooltips instead of native title hovers', () => {
+  const css = fs.readFileSync(path.join(__dirname, 'style.css'), 'utf8');
+
+  assert.match(css, /\.chip-action::after,/);
+  assert.match(css, /content: attr\(data-tooltip\);/);
+  assert.doesNotMatch(runtimeJs, /save-current-window-session"[^>]* title="/);
+  assert.doesNotMatch(runtimeJs, /save-domain-session"[^>]* title="/);
+  assert.doesNotMatch(runtimeJs, /save-single-tab-session"[^>]* title="/);
+});
+
+test('saved tabs top nav supports session reordering and card jump highlighting', () => {
+  const css = fs.readFileSync(path.join(__dirname, 'style.css'), 'utf8');
+
+  assert.match(sessionManagerJs, /normalizeSavedTabSessionOrder/);
+  assert.match(sessionManagerJs, /applySavedTabSessionOrder/);
+  assert.match(sessionManagerJs, /buildSavedTabSessionOrder/);
+  assert.match(sessionManagerJs, /createNewSession/);
+  assert.match(sessionManagerJs, /newSessionPlacement/);
+  assert.match(sessionManagerJs, /insertBeforeSessionId/);
+  assert.match(sessionManagerJs, /lastResolvedDropTarget/);
+  assert.match(sessionManagerJs, /detachSavedSessionTabToNewSession/);
+  assert.match(sessionManagerJs, /data-action="jump-to-saved-session"/);
+  assert.match(sessionManagerJs, /savedSessionDragPlaceholderEl/);
+  assert.match(sessionManagerJs, /savedSessionNewSessionSlotEl/);
+  assert.match(sessionManagerJs, /saveSavedTabSessionOrder/);
+  assert.match(sessionManagerJs, /const SAVED_TAB_SESSION_COLLAPSED_KEY = 'savedTabSessionCollapsedState'/);
+  assert.match(css, /\.saved-session-card\.group-nav-target/);
+  assert.match(sessionManagerJs, /savedSessionTabDragState/);
+  assert.match(sessionManagerJs, /saved-session-reorder-handle/);
+  assert.match(sessionManagerJs, /data-action="toggle-saved-session-settings"/);
+  assert.match(sessionManagerJs, /data-action="change-saved-session-restore-mode"/);
+  assert.match(sessionManagerJs, /data-action="change-saved-session-nav-display-mode"/);
+  assert.match(sessionManagerJs, /saved-session-settings-trigger/);
+  assert.match(sessionManagerJs, /saved-session-settings-menu/);
+  assert.match(sessionManagerJs, /data-action="toggle-saved-session-collapse"/);
+  assert.match(sessionManagerJs, /<select[^>]+data-action="change-saved-session-restore-mode"/);
+  assert.match(sessionManagerJs, /<select[^>]+data-action="change-saved-session-nav-display-mode"/);
+  assert.match(css, /\.saved-session-tab-row/);
+  assert.match(css, /\.saved-session-tab-placeholder/);
+  assert.match(css, /\.saved-session-new-slot/);
+  assert.match(css, /\.saved-session-new-slot-line/);
+  assert.match(css, /\.saved-session-settings-trigger/);
+  assert.match(css, /\.saved-session-settings-menu/);
+  assert.match(css, /\.saved-session-collapse/);
+  assert.match(css, /\.saved-session-card\.is-collapsed/);
+  assert.match(css, /\.saved-session-nav-button\.is-name-mode/);
+});
+
+test('tab sessions close selected tabs by id after storage save instead of fuzzy url matching', () => {
+  assert.match(tabSessionsJs, /const SAVED_TAB_SESSIONS_KEY = 'savedTabSessions'/);
+  assert.match(runtimeJs, /await saveTabsAsSession\(/);
+  assert.match(runtimeJs, /chrome\.tabs\.remove\(tabIdsToClose\)/);
+  assert.doesNotMatch(runtimeJs, /closeTabsByUrls\(selected/);
+});
 
 test('tab chips no longer render move-to-group controls', () => {
   const css = fs.readFileSync(path.join(__dirname, 'style.css'), 'utf8');
@@ -110,9 +267,13 @@ test('manifest action keeps the popup entry wired to popup html', () => {
 
 test('theme controls expose popup helpers without dropping main theme runtime exports', () => {
   assert.match(themeJs, /getResolvedThemeDefinition/);
+  assert.match(themeJs, /getSavedSessionNavDisplayMode/);
   assert.match(themeJs, /getResolvedTone/);
+  assert.match(themeJs, /getSavedSessionRestoreMode/);
   assert.match(themeJs, /loadThemePreferences/);
   assert.match(themeJs, /getQuickShortcuts/);
+  assert.match(themeJs, /saveSavedSessionNavDisplayMode/);
+  assert.match(themeJs, /saveSavedSessionRestoreMode/);
   assert.match(themeJs, /saveQuickShortcutOrder/);
   assert.match(themeJs, /syncPopupTheme/);
 });
@@ -721,6 +882,8 @@ test('drawer detail escapes todo title and description before injecting HTML', (
 test('theme state uses separate mode and palette preferences', () => {
   assert.match(themeJs, /mode:\s*'system'/);
   assert.match(themeJs, /paletteId:\s*'paper'/);
+  assert.match(themeJs, /savedSessionRestoreMode:\s*'new-window'/);
+  assert.match(themeJs, /savedSessionNavDisplayMode:\s*'name'/);
   assert.doesNotMatch(themeJs, /themePreferences = \{[\s\S]*themeId:/);
   assert.match(themeJs, /resolvedTone/);
   assert.match(themeJs, /theme-tone-dark/);
@@ -728,6 +891,31 @@ test('theme state uses separate mode and palette preferences', () => {
   assert.match(appJs, /themeModeSystem/);
   assert.match(appJs, /themeModeLight/);
   assert.match(appJs, /themeModeDark/);
+});
+
+test('saved session restore supports both current-window and new-window modes', () => {
+  assert.match(runtimeJs, /const restoreMode = runtimeGetSavedSessionRestoreMode \? runtimeGetSavedSessionRestoreMode\(\) : 'new-window';/);
+  assert.match(runtimeJs, /if \(restoreMode === 'current-window'\)/);
+  assert.match(runtimeJs, /async function openSavedTabsInCurrentWindow\(tabs = \[\]\)/);
+  assert.match(runtimeJs, /await chrome\.tabs\.create\(\{\s*windowId: currentWindowId,\s*url: firstTab\.url,\s*active: true,\s*\}\)/);
+  assert.match(runtimeJs, /await chrome\.windows\.create\(\{\s*url: firstTab\.url,\s*focused: true,\s*\}\)/);
+  assert.match(runtimeJs, /async function restoreSavedTabToBrowser\(tabUrl\)/);
+  assert.match(runtimeJs, /const \{ windowId \} = await openSavedTabsInCurrentWindow\(\[\{ url: tabUrl \}]\);/);
+  assert.match(sessionManagerJs, /runtime\.restoreSavedTabToBrowser/);
+});
+
+test('saved tabs top nav supports icon and name display modes', () => {
+  const css = fs.readFileSync(path.join(__dirname, 'style.css'), 'utf8');
+
+  assert.match(sessionManagerJs, /const navDisplayMode = getSavedSessionNavDisplayModeValue\(\);/);
+  assert.match(sessionManagerJs, /if \(navDisplayMode === 'name'\)/);
+  assert.match(sessionManagerJs, /class="group-nav-button saved-session-nav-button is-name-mode"/);
+  assert.match(sessionManagerJs, /<span class="saved-session-nav-label"/);
+  assert.match(sessionManagerJs, /data-action="change-saved-session-nav-display-mode"/);
+  assert.match(css, /\.saved-session-nav-button\.is-name-mode/);
+  assert.match(css, /\.saved-session-nav-label/);
+  assert.match(css, /\.saved-session-nav-button\.is-name-mode\s*\{[\s\S]*max-width:/);
+  assert.match(css, /\.saved-session-nav-label\s*\{[\s\S]*white-space:\s*nowrap;[\s\S]*text-overflow:\s*ellipsis;/);
 });
 
 test('quick shortcuts overwrite the current Tab Harbor tab instead of focusing another tab or opening a new one', () => {
@@ -789,6 +977,9 @@ test('dashboard auto-refreshes when tabs change via background message', () => {
   assert.match(bgJs, /notifyTabHarborPages/);
   assert.match(bgJs, /chrome\.tabs\.sendMessage/);
   assert.match(bgJs, /action:\s*'tabs-changed'/);
+  assert.match(bgJs, /triggerTabId/);
+  assert.match(bgJs, /source:\s*'tabs\.onCreated'/);
+  assert.match(bgJs, /source:\s*'tabs\.onUpdated'/);
   assert.match(bgJs, /chrome\.tabs\.onCreated\.addListener/);
   assert.match(bgJs, /chrome\.tabs\.onRemoved\.addListener/);
   
@@ -796,6 +987,10 @@ test('dashboard auto-refreshes when tabs change via background message', () => {
   assert.match(appJs, /setupTabChangeListener/);
   assert.match(appJs, /chrome\.runtime\.onMessage\.addListener/);
   assert.match(appJs, /message\.action === 'tabs-changed'/);
+  assert.match(appJs, /shouldSkipStartupTabChange\(message\)/);
+  assert.match(appJs, /initializeDashboardRuntime[\s\S]*window\.__suppressAutoRefreshUntil = Math\.max\([\s\S]*Date\.now\(\) \+ 2000/);
+  assert.match(appJs, /dashboardStartupTabChangeIgnoreUntil/);
+  assert.match(appJs, /currentDashboardTabId/);
   assert.match(appJs, /setTimeout[\s\S]*renderDashboard/);
   assert.match(appJs, /__tabRefreshTimeout/);
 });
@@ -826,6 +1021,21 @@ test('chrome tab group mode stays active while the toggle is on', () => {
   );
 });
 
+test('discard tab supports per-chip, group-level, and global sleep-all with gated visibility', () => {
+  assert.match(runtimeJs, /async function discardTab\(tabId\)\s*\{[\s\S]*chrome\.tabs\.discard\(/);
+  assert.match(runtimeJs, /data-action="discard-tab"/);
+  assert.match(runtimeJs, /data-action="sleep-domain-tabs"/);
+  assert.match(runtimeJs, /data-action="sleep-all-open-tabs"/);
+  assert.match(runtimeJs, /page-chip--discarded/);
+  assert.match(runtimeJs, /if \(action === 'discard-tab'\)\s*\{[\s\S]*await fetchOpenTabs\(\);[\s\S]*await renderDashboard\(\);/);
+  assert.match(runtimeJs, /if \(action === 'sleep-domain-tabs'\)\s*\{[\s\S]*await fetchOpenTabs\(\);[\s\S]*await renderDashboard\(\);/);
+
+  const css = fs.readFileSync(path.join(__dirname, 'style.css'), 'utf8');
+  assert.match(css, /\.chip-discard:hover\s*\{[\s\S]*color:\s*var\(--muted\);/);
+  assert.match(css, /\.page-chip--discarded\s*\{[\s\S]*opacity:\s*0\.6;/);
+  assert.match(css, /\.page-chip--discarded\s\.chip-text\s*\{[\s\S]*text-decoration:\s*line-through;/);
+});
+
 test('theme menu keeps chrome tab groups above hitokoto and uses left-aligned toggles', () => {
   assert.match(
     runtimeJs,
@@ -841,10 +1051,12 @@ test('hitokoto uses cached text and refreshes in the background without blocking
   assert.match(runtimeJs, /const HITOKOTO_CACHE_KEY = 'hitokotoCache';/);
   assert.match(runtimeJs, /function renderCachedHitokoto\(/);
   assert.match(runtimeJs, /function refreshHitokotoInBackground\(/);
-  assert.match(runtimeJs, /renderCachedHitokoto\(hitokotoTextEl, hitokotoFromEl\);[\s\S]*void refreshHitokotoInBackground\(hitokotoTextEl, hitokotoFromEl\);/);
+  assert.match(runtimeJs, /function warmHitokotoCacheInBackground\(/);
+  assert.match(runtimeJs, /renderCachedHitokoto\(hitokotoTextEl, hitokotoFromEl\);[\s\S]*void warmHitokotoCacheInBackground\(\);/);
 
   const renderStaticDashboardBody = runtimeJs.match(
     /async function renderStaticDashboard\(\) \{([\s\S]*?)\n\}\n\nasync function renderDashboard/
   )?.[1] || '';
   assert.doesNotMatch(renderStaticDashboardBody, /await fetchHitokoto/);
+  assert.doesNotMatch(renderStaticDashboardBody, /refreshHitokotoInBackground/);
 });
