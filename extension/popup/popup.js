@@ -366,9 +366,10 @@ function renderGroupNav(group, index) {
   const iconData = popupIcons.getGroupIcon ? popupIcons.getGroupIcon(group, label, 32) : { src: '', fallbackLabel: label.slice(0, 2).toUpperCase() };
   const fallbackLabel = escapeAttr(iconData.fallbackLabel || label.slice(0, 2).toUpperCase());
   const fallbackSrc = escapeAttr(iconData.fallbackSrc || '');
+  const fallbackSrcset = escapeAttr(JSON.stringify(iconData.fallbackSources?.slice(1) || []));
   return `
     <button class="group-nav-button" type="button" data-action="jump-popup-group" data-group-id="${escapeAttr(group.domain)}" aria-label="${escapeAttr(label)}" style="--s:${index}">
-      ${iconData.src ? `<img class="group-nav-icon" src="${escapeAttr(iconData.src)}" alt="" draggable="false" data-fallback-src="${fallbackSrc}">` : ''}
+      ${iconData.src ? `<img class="group-nav-icon" src="${escapeAttr(iconData.src)}" alt="" draggable="false" data-fallback-src="${fallbackSrc}" data-fallback-srcset="${fallbackSrcset}">` : ''}
       <span class="group-nav-fallback"${iconData.src ? ' style="display:none"' : ''}>${fallbackLabel}</span>
     </button>
   `;
@@ -546,10 +547,31 @@ function handlePopupGroupNavImageError(event) {
   if (!(target instanceof HTMLImageElement)) return;
   if (!target.classList.contains('group-nav-icon')) return;
 
-  const fallbackSrc = String(target.dataset.fallbackSrc || '').trim();
-  if (fallbackSrc && target.dataset.fallbackApplied !== 'true') {
-    target.dataset.fallbackApplied = 'true';
-    target.src = fallbackSrc;
+  const fallbackQueue = [];
+  const primaryFallback = String(target.dataset.fallbackSrc || '').trim();
+  if (primaryFallback) fallbackQueue.push(primaryFallback);
+  const serializedQueue = String(target.dataset.fallbackSrcset || '').trim();
+  if (serializedQueue) {
+    try {
+      const parsed = JSON.parse(serializedQueue);
+      if (Array.isArray(parsed)) {
+        fallbackQueue.push(...parsed.map(url => String(url || '').trim()).filter(Boolean));
+      }
+    } catch {}
+  }
+
+  const currentSrc = String(target.currentSrc || target.src || '').trim();
+  const nextFallback = fallbackQueue.find(url => url && url !== currentSrc && url !== String(target.dataset.fallbackApplied || '').trim());
+  if (nextFallback) {
+    const remaining = fallbackQueue.filter(url => url && url !== nextFallback);
+    target.dataset.fallbackApplied = nextFallback;
+    target.dataset.fallbackSrc = nextFallback;
+    if (remaining.length) {
+      target.dataset.fallbackSrcset = JSON.stringify(remaining);
+    } else {
+      delete target.dataset.fallbackSrcset;
+    }
+    target.src = nextFallback;
     return;
   }
 
