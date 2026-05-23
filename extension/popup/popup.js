@@ -322,7 +322,9 @@ function renderPopupShortcuts() {
 function renderShortcutCard(shortcut, index) {
   const label = shortcut.label || shortcut.url;
   const iconKind = String(shortcut.iconKind || '');
-  const iconData = popupIcons.getIconSources ? popupIcons.getIconSources({ url: shortcut.url, favIconUrl: iconKind === 'image' ? shortcut.icon : '' }, 32) : { sources: [], hostname: '' };
+  const faviconData = popupIcons.getFaviconUrl ? popupIcons.getFaviconUrl({ domain: shortcut.url, size: 32 }) : { url: '', fallback: '' };
+  const hostname = popupIcons.getHostname ? popupIcons.getHostname(shortcut.url) : '';
+  const fallbackLabel = popupIcons.getFallbackLabel ? popupIcons.getFallbackLabel(label, hostname) : label.slice(0, 1).toUpperCase();
   const safeUrl = escapeAttr(shortcut.url);
   const safeLabel = escapeAttr(label);
   const primaryIconUrl = iconKind === 'image'
@@ -331,15 +333,14 @@ function renderShortcutCard(shortcut, index) {
       ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(shortcut.icon || '')}`
       : iconKind === 'glyph'
         ? ''
-        : (iconData.sources?.[0] || '');
+        : (faviconData.url || '');
   const glyph = iconKind === 'glyph' ? shortcut.icon : '';
-  const fallbackLabel = popupIcons.getFallbackLabel ? popupIcons.getFallbackLabel(label, iconData.hostname) : label.slice(0, 1).toUpperCase();
 
   return `
     <div class="quick-shortcut-card popup-shortcut-card" style="--s:${index}">
       <button class="quick-shortcut-open" type="button" data-action="open-popup-url" data-url="${safeUrl}" aria-label="${safeLabel}">
         <span class="quick-shortcut-icon-wrap">
-          ${primaryIconUrl ? `<img class="quick-shortcut-icon${iconKind === 'image' ? ' quick-shortcut-icon-custom' : ''}" src="${primaryIconUrl}" alt="" draggable="false">` : ''}
+          ${primaryIconUrl ? `<img class="quick-shortcut-icon${iconKind === 'image' ? ' quick-shortcut-icon-custom' : ''}" src="${primaryIconUrl}" alt="" draggable="false" data-fallback-src="${escapeAttr(faviconData.fallback || '')}">` : ''}
           ${glyph ? `<span class="quick-shortcut-custom-glyph" aria-hidden="true">${glyph}</span>` : ''}
           <span class="quick-shortcut-fallback"${primaryIconUrl || glyph ? ' style="display:none"' : ''}>${fallbackLabel}</span>
         </span>

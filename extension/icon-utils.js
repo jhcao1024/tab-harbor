@@ -79,6 +79,28 @@
     return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(hostname)}&sz=${size}`;
   }
 
+  function getFaviconUrl(input) {
+    const rawUrl = typeof input === 'string' ? input : input.domain;
+    const size = typeof input === 'string' ? 128 : (input.size ?? 128);
+
+    const cleanDomain = rawUrl.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+
+    const faviconBase = (typeof chrome !== 'undefined' && chrome.runtime?.getURL)
+      ? chrome.runtime.getURL('_favicon/')
+      : '';
+    const chromeUrl = faviconBase
+      ? `${faviconBase}?pageUrl=${encodeURIComponent(rawUrl)}&size=${size}`
+      : '';
+
+    const fallbackUrl = `https://${cleanDomain}/favicon.ico`;
+
+    return {
+      url: chromeUrl,
+      source: 'chrome',
+      fallback: fallbackUrl,
+    };
+  }
+
   function isStableIconUrl(url = '') {
     if (!url) return false;
     try {
@@ -162,6 +184,7 @@
     getGroupIcon,
     getHostname,
     getPrimaryDomain,
+    getFaviconUrl,
     getIconSources,
   };
 

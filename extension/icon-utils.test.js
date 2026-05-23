@@ -11,6 +11,7 @@ const {
   getGroupIcon,
   getPrimaryDomain,
   getIconSources,
+  getFaviconUrl,
 } = require('./icon-utils.js');
 
 test('getIconSources prefers real favicon before domain fallback', () => {
@@ -65,6 +66,51 @@ test('getIconSources skips unstable browser internal favicon urls', () => {
     'https://www.google.com/s2/favicons?domain=ict.ac.cn&sz=32',
     'https://www.google.com/s2/favicons?domain=www.ict.ac.cn&sz=32',
   ]);
+});
+
+test('getFaviconUrl builds fallback URL from URL string input', () => {
+  const result = getFaviconUrl('https://www.example.com/page');
+  assert.equal(result.source, 'chrome');
+  assert.equal(result.fallback, 'https://www.example.com/favicon.ico');
+});
+
+test('getFaviconUrl builds fallback URL from options object', () => {
+  const result = getFaviconUrl({ domain: 'github.com', size: 64 });
+  assert.equal(result.fallback, 'https://github.com/favicon.ico');
+});
+
+test('getFaviconUrl defaults size to 128 for string input', () => {
+  const result = getFaviconUrl('https://example.com');
+  assert.ok(result.url === '' || result.url.includes('size=128'),
+    'Chrome URL should use size=128 when available');
+});
+
+test('getFaviconUrl respects custom size in options', () => {
+  const result = getFaviconUrl({ domain: 'example.com', size: 32 });
+  assert.ok(result.url === '' || result.url.includes('size=32'),
+    'Chrome URL should use custom size when available');
+});
+
+test('getFaviconUrl generates chrome _favicon URL when chrome runtime is available', () => {
+  const savedGetURL = globalThis.chrome?.runtime?.getURL;
+  globalThis.chrome = {
+    runtime: {
+      getURL: (path) => `chrome-extension://abc/${path}`,
+    },
+  };
+  try {
+    const result = getFaviconUrl({ domain: 'https://example.com/path', size: 32 });
+    assert.ok(result.url.startsWith('chrome-extension://abc/_favicon/'), 'Chrome URL should use _favicon path');
+    assert.ok(result.url.includes('pageUrl='), 'Chrome URL should include pageUrl param');
+    assert.ok(result.url.includes('size=32'), 'Chrome URL should include size param');
+    assert.equal(result.fallback, 'https://example.com/favicon.ico');
+  } finally {
+    if (savedGetURL) {
+      globalThis.chrome = { runtime: { getURL: savedGetURL } };
+    } else {
+      delete globalThis.chrome;
+    }
+  }
 });
 
 test('escapeHtmlAttribute protects custom tooltip text', () => {

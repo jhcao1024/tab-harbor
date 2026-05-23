@@ -8,6 +8,8 @@ const {
   escapeHtml: themeEscapeHtml,
   escapeHtmlAttribute: themeEscapeHtmlAttribute,
   getFallbackLabel: themeGetFallbackLabel,
+  getFaviconUrl: themeGetFaviconUrl,
+  getHostname: themeGetHostname,
   getIconSources: themeGetIconSources,
 } = globalThis.TabOutIconUtils || {};
 
@@ -1305,10 +1307,11 @@ function renderQuickShortcutCard(shortcut) {
   const label = getShortcutLabel(shortcut);
   const safeLabel = themeEscapeHtml ? themeEscapeHtml(label) : label;
   const safeAriaLabel = themeEscapeHtmlAttribute ? themeEscapeHtmlAttribute(label) : label.replace(/"/g, '&quot;');
-  const iconData = themeGetIconSources({ url: shortcut.url, title: label }, 32);
-  const faviconUrl = iconData.sources[0] || '';
-  const fallbackUrl = iconData.sources[1] || '';
-  const fallbackLabel = themeGetFallbackLabel(label, iconData.hostname);
+  const faviconData = themeGetFaviconUrl({ domain: shortcut.url, size: 32 });
+  const faviconUrl = faviconData.url || '';
+  const fallbackUrl = faviconData.fallback || '';
+  const hostname = themeGetHostname ? themeGetHostname(shortcut.url) : '';
+  const fallbackLabel = themeGetFallbackLabel(label, hostname);
   const safeId = themeEscapeHtmlAttribute ? themeEscapeHtmlAttribute(shortcut.id) : shortcut.id.replace(/"/g, '&quot;');
   const safeUrl = themeEscapeHtmlAttribute ? themeEscapeHtmlAttribute(shortcut.url) : shortcut.url.replace(/"/g, '&quot;');
   const customIcon = normalizeShortcutIcon(shortcut.icon);
