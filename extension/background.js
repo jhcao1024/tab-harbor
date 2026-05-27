@@ -8,6 +8,40 @@
 const TAB_HARBOR_BG_DEBUG = false;
 if (TAB_HARBOR_BG_DEBUG) console.log('[tab-harbor bg] Service worker loaded, registering event listeners...');
 
+// ─── Auto-close duplicate new tabs ───────────────────────────────────────────
+
+function isNewTabBlank(tab, newTabUrl) {
+  return (
+    tab.url === 'chrome://newtab/' ||
+    tab.url === newTabUrl ||
+    tab.url === '' ||
+    (tab.status === 'loading' && !tab.url)
+  );
+}
+
+async function closeDuplicateNewTabs() {
+  try {
+    const stored = await chrome.storage.local.get('themePreferences');
+    const prefs = stored.themePreferences || {};
+    if (prefs.closeDuplicateNewTabsEnabled !== true) return;
+
+    const newTabUrl = chrome.runtime.getURL('index.html');
+    const allTabs = await chrome.tabs.query({});
+    const blankTabs = allTabs.filter(tab => isNewTabBlank(tab, newTabUrl));
+
+    if (blankTabs.length <= 1) return;
+
+    // Keep the active tab; if none is active, keep the one with the largest id (newest)
+    const activeTab = blankTabs.find(tab => tab.active);
+    const toKeep = activeTab || blankTabs.reduce((a, b) => (a.id > b.id ? a : b));
+    const toClose = blankTabs.filter(tab => tab.id !== toKeep.id).map(tab => tab.id);
+
+    if (toClose.length > 0) await chrome.tabs.remove(toClose);
+  } catch (err) {
+    console.warn('[tab-harbor bg] closeDuplicateNewTabs error:', err.message);
+  }
+}
+
 async function updateBadge() {
   try {
     await chrome.action.setBadgeText({ text: '' });
@@ -80,6 +114,7 @@ chrome.runtime.onStartup.addListener(() => {
 chrome.tabs.onCreated.addListener((tab) => {
   updateBadge();
   notifyTabHarborPages({ source: 'tabs.onCreated', triggerTabId: tab?.id });
+  closeDuplicateNewTabs();
 });
 
 // Update badge and notify Tab Harbor pages whenever a tab is closed
@@ -98,3 +133,10 @@ chrome.tabs.onUpdated.addListener((tabId) => {
 
 // Run once immediately when the service worker first loads
 updateBadge();
+
+// ─── Test exports ────────────────────────────────────────────────────────────
+
+globalThis.TabHarborBackground = {
+  isNewTabBlank,
+  closeDuplicateNewTabs,
+};

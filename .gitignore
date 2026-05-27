@@ -4,3 +4,5 @@ extension.zip
 dist/*.zip
 .idea
 .vscode
+CLAUDE.local.md
+CLAUDE.md

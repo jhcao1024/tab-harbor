@@ -91,6 +91,22 @@ test('normalizeThemePreferences falls back to new-window for invalid saved sessi
   assert.equal(result.savedSessionNavDisplayMode, 'name');
 });
 
+test('normalizeThemePreferences defaults closeDuplicateNewTabsEnabled to false', () => {
+  const result = normalizeThemePreferences({});
+  assert.equal(result.closeDuplicateNewTabsEnabled, false);
+});
+
+test('normalizeThemePreferences preserves closeDuplicateNewTabsEnabled when true', () => {
+  const result = normalizeThemePreferences({ closeDuplicateNewTabsEnabled: true });
+  assert.equal(result.closeDuplicateNewTabsEnabled, true);
+});
+
+test('normalizeThemePreferences rejects non-boolean closeDuplicateNewTabsEnabled', () => {
+  assert.equal(normalizeThemePreferences({ closeDuplicateNewTabsEnabled: 'yes' }).closeDuplicateNewTabsEnabled, false);
+  assert.equal(normalizeThemePreferences({ closeDuplicateNewTabsEnabled: 1 }).closeDuplicateNewTabsEnabled, false);
+  assert.equal(normalizeThemePreferences({ closeDuplicateNewTabsEnabled: null }).closeDuplicateNewTabsEnabled, false);
+});
+
 test('getResolvedTone follows system preference when mode is system', () => {
   const originalMatchMedia = globalThis.window.matchMedia;
   globalThis.window.matchMedia = query => ({

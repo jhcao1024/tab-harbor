@@ -250,6 +250,7 @@ let themePreferences = {
   shortcutScale: 100,
   hitokotoEnabled: true,
   sleepControlEnabled: false,
+  closeDuplicateNewTabsEnabled: false,
   savedSessionRestoreMode: 'new-window',
   savedSessionNavDisplayMode: 'name',
 };
@@ -286,6 +287,7 @@ function normalizeThemePreferences(input) {
     shortcutScale,
     hitokotoEnabled: next.hitokotoEnabled !== false,
     sleepControlEnabled: next.sleepControlEnabled === true,
+    closeDuplicateNewTabsEnabled: next.closeDuplicateNewTabsEnabled === true,
     savedSessionRestoreMode: VALID_SAVED_SESSION_RESTORE_MODES.has(rawSavedSessionRestoreMode) ? rawSavedSessionRestoreMode : 'new-window',
     savedSessionNavDisplayMode: VALID_SAVED_SESSION_NAV_DISPLAY_MODES.has(rawSavedSessionNavDisplayMode) ? rawSavedSessionNavDisplayMode : 'name',
   };

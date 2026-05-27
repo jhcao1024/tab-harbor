@@ -125,7 +125,7 @@ test('desk settings separates appearance and feature controls', () => {
   assert.match(runtimeJs, /class="theme-menu-tabs" role="tablist"/);
   assert.match(runtimeJs, /data-theme-menu-tab="appearance"[\s\S]*data-theme-menu-tab="features"/);
   assert.match(runtimeJs, /id="themeMenuAppearancePanel"[\s\S]*id="themeModeOptions"[\s\S]*id="themeOptions"/);
-  assert.match(runtimeJs, /id="themeMenuFeaturesPanel"[\s\S]*data-action="toggle-chrome-tab-groups"[\s\S]*data-action="toggle-hitokoto"[\s\S]*data-action="toggle-sleep-control"/);
+  assert.match(runtimeJs, /id="themeMenuFeaturesPanel"[\s\S]*data-action="toggle-chrome-tab-groups"[\s\S]*data-action="toggle-hitokoto"[\s\S]*data-action="toggle-sleep-control"[\s\S]*data-action="toggle-close-duplicate-new-tabs"/);
   assert.match(runtimeJs, /if \(action === 'select-theme-menu-tab'\)/);
   assert.match(themeJs, /let themeMenuActiveTab = 'appearance';/);
   assert.match(themeJs, /querySelectorAll\('\[data-theme-menu-panel\]'\)/);

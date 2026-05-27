@@ -2961,6 +2961,12 @@ function renderWorkspaceThemeTools() {
               <span class="theme-menu-label theme-menu-toggle-text">${runtimeT ? runtimeT('sleepControlLabel') : 'Manual sleep control'}</span>
             </label>
           </div>
+          <div class="theme-menu-section">
+            <label class="theme-menu-toggle-label theme-menu-toggle-button-row">
+              <button class="theme-toggle-switch ${(typeof themePreferences !== 'undefined' && themePreferences.closeDuplicateNewTabsEnabled) ? 'is-active' : ''}" type="button" data-action="toggle-close-duplicate-new-tabs" aria-pressed="${(typeof themePreferences !== 'undefined' && themePreferences.closeDuplicateNewTabsEnabled) ? 'true' : 'false'}" aria-label="${runtimeT ? runtimeT('closeDuplicateNewTabsLabel') : 'Auto-close duplicate new tabs'}"></button>
+              <span class="theme-menu-label theme-menu-toggle-text">${runtimeT ? runtimeT('closeDuplicateNewTabsLabel') : 'Auto-close duplicate new tabs'}</span>
+            </label>
+          </div>
         </div>
         <input type="file" id="themeBackgroundInput" accept="image/*" hidden>
       </div>
@@ -3531,6 +3537,17 @@ document.addEventListener('click', async (e) => {
     await saveThemePreferences({ sleepControlEnabled: nextEnabled });
     sleepControlEnabled = nextEnabled;
     await renderDashboard();
+    return;
+  }
+
+  if (action === 'toggle-close-duplicate-new-tabs') {
+    const nextEnabled = !(typeof themePreferences !== 'undefined' && themePreferences.closeDuplicateNewTabsEnabled);
+    await saveThemePreferences({ closeDuplicateNewTabsEnabled: nextEnabled });
+    const toggleSwitch = document.querySelector('[data-action="toggle-close-duplicate-new-tabs"]');
+    if (toggleSwitch) {
+      toggleSwitch.classList.toggle('is-active', nextEnabled);
+      toggleSwitch.setAttribute('aria-pressed', String(nextEnabled));
+    }
     return;
   }
 
