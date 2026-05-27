@@ -49,6 +49,7 @@ const { isNewTabBlank, closeDuplicateNewTabs } = globalThis.TabHarborBackground;
 // ─── isNewTabBlank ────────────────────────────────────────────────────────
 
 const EXT_URL = 'chrome-extension://test-extension-id/index.html';
+const ROOT_MANIFEST_EXT_URL = 'chrome-extension://test-extension-id/extension/index.html';
 
 test('isNewTabBlank matches chrome://newtab/', () => {
   assert.equal(isNewTabBlank({ url: 'chrome://newtab/' }, EXT_URL), true);
@@ -56,6 +57,10 @@ test('isNewTabBlank matches chrome://newtab/', () => {
 
 test('isNewTabBlank matches extension index.html', () => {
   assert.equal(isNewTabBlank({ url: EXT_URL }, EXT_URL), true);
+});
+
+test('isNewTabBlank matches extension/index.html from root manifest entry', () => {
+  assert.equal(isNewTabBlank({ url: ROOT_MANIFEST_EXT_URL }, [EXT_URL, ROOT_MANIFEST_EXT_URL]), true);
 });
 
 test('isNewTabBlank matches empty url', () => {
@@ -158,4 +163,15 @@ test('closeDuplicateNewTabs handles mixed blank tab types', async () => {
   await closeDuplicateNewTabs();
   // Keep id=2 (active), close 1, 3, 4
   assert.deepEqual(removedTabIds, [1, 3, 4]);
+});
+
+test('closeDuplicateNewTabs treats root manifest new tab pages as blank tabs', async () => {
+  storageData = { themePreferences: { closeDuplicateNewTabsEnabled: true } };
+  removedTabIds = [];
+  globalThis.chrome.tabs.query = async () => [
+    { id: 1, url: ROOT_MANIFEST_EXT_URL, active: false },
+    { id: 2, url: 'chrome://newtab/', active: true },
+  ];
+  await closeDuplicateNewTabs();
+  assert.deepEqual(removedTabIds, [1]);
 });

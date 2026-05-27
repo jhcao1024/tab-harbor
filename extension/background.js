@@ -10,10 +10,20 @@ if (TAB_HARBOR_BG_DEBUG) console.log('[tab-harbor bg] Service worker loaded, reg
 
 // ─── Auto-close duplicate new tabs ───────────────────────────────────────────
 
-function isNewTabBlank(tab, newTabUrl) {
+function getNewTabUrls() {
+  return new Set([
+    chrome.runtime.getURL('index.html'),
+    chrome.runtime.getURL('extension/index.html'),
+  ]);
+}
+
+function isNewTabBlank(tab, newTabUrls) {
+  const knownNewTabUrls = newTabUrls instanceof Set
+    ? newTabUrls
+    : new Set(Array.isArray(newTabUrls) ? newTabUrls : [newTabUrls]);
   return (
     tab.url === 'chrome://newtab/' ||
-    tab.url === newTabUrl ||
+    knownNewTabUrls.has(tab.url) ||
     tab.url === '' ||
     (tab.status === 'loading' && !tab.url)
   );
@@ -25,9 +35,9 @@ async function closeDuplicateNewTabs() {
     const prefs = stored.themePreferences || {};
     if (prefs.closeDuplicateNewTabsEnabled !== true) return;
 
-    const newTabUrl = chrome.runtime.getURL('index.html');
+    const newTabUrls = getNewTabUrls();
     const allTabs = await chrome.tabs.query({});
-    const blankTabs = allTabs.filter(tab => isNewTabBlank(tab, newTabUrl));
+    const blankTabs = allTabs.filter(tab => isNewTabBlank(tab, newTabUrls));
 
     if (blankTabs.length <= 1) return;
 
@@ -137,6 +147,7 @@ updateBadge();
 // ─── Test exports ────────────────────────────────────────────────────────────
 
 globalThis.TabHarborBackground = {
+  getNewTabUrls,
   isNewTabBlank,
   closeDuplicateNewTabs,
 };
