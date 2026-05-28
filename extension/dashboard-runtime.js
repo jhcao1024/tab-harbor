@@ -105,8 +105,9 @@ const {
    access to chrome.tabs and chrome.storage. No middleman needed.
    ---------------------------------------------------------------- */
 
-// All open tabs — populated by fetchOpenTabs()
+// Visible open tabs for this dashboard window — populated by fetchOpenTabs()
 let openTabs = [];
+let allOpenTabIds = [];
 let sessionGroupsState = normalizeSessionGroups ? normalizeSessionGroups() : { groups: [], assignments: {} };
 const MANUAL_GROUP_PREFIX = '__session_group__:';
 const PAGE_CHIP_DRAG_DEBUG = false;
@@ -155,6 +156,7 @@ let chromeTabGroupsUnsubscribe = null;
 let chromeTabGroupsImportInFlight = false;
 let suppressChromeTabGroupsImportUntil = 0;
 let currentDashboardTabId = null;
+let currentDashboardWindowId = null;
 let dashboardStartupTabChangeIgnoreUntil = 0;
 const ENTRY_ANIMATIONS_CLASS = 'entry-animations-enabled';
 let entryAnimationsTimer = null;
@@ -708,8 +710,14 @@ async function fetchOpenTabs() {
   try {
     const newtabUrl = window.location.href;
 
+    const currentWindowId = await getDashboardWindowIdForOpenTabs();
     const tabs = await chrome.tabs.query({});
-    openTabs = tabs.map(t => {
+    allOpenTabIds = tabs.map(tab => tab?.id).filter(tabId => tabId != null);
+    const visibleTabs = currentWindowId == null
+      ? tabs
+      : tabs.filter(t => t.windowId === currentWindowId);
+
+    openTabs = visibleTabs.map(t => {
       const rawUrl = t.url || '';
       const suspended = runtimeParseSuspendedTabUrl
         ? runtimeParseSuspendedTabUrl(rawUrl)
@@ -735,7 +743,20 @@ async function fetchOpenTabs() {
   } catch {
     // chrome.tabs API unavailable (shouldn't happen in an extension page)
     openTabs = [];
+    allOpenTabIds = [];
   }
+}
+
+function getOpenTabIdsForSessionPruning() {
+  return allOpenTabIds.length > 0 ? allOpenTabIds : openTabs.map(tab => tab.id);
+}
+
+async function queryTabsForDashboardWindow() {
+  const tabs = await chrome.tabs.query({});
+  const currentWindowId = await getDashboardWindowIdForOpenTabs();
+  return currentWindowId == null
+    ? tabs
+    : tabs.filter(tab => tab.windowId === currentWindowId);
 }
 
 async function loadSessionGroups(openTabIds = []) {
@@ -920,7 +941,7 @@ function scheduleChromeTabGroupsImport() {
     try {
       await fetchOpenTabs();
       const realTabs = getRealTabs();
-      await loadSessionGroups(realTabs.map(tab => tab.id));
+      await loadSessionGroups(getOpenTabIdsForSessionPruning());
       await loadImportedChromeGroupMeta();
       if (!shouldImportChromeGroupsIntoSessionState()) {
         disableChromeTabGroupsImportModeForLocalEdits();
@@ -949,7 +970,7 @@ async function applyChromeTabGroupsToggle(nextEnabled) {
 
   await fetchOpenTabs();
   const realTabs = getRealTabs();
-  await loadSessionGroups(realTabs.map(tab => tab.id));
+  await loadSessionGroups(getOpenTabIdsForSessionPruning());
   await loadImportedChromeGroupMeta();
 
   let importedCount = 0;
@@ -1072,6 +1093,23 @@ async function getCurrentWindowId() {
   return currentWindow?.id;
 }
 
+async function getDashboardWindowIdForOpenTabs() {
+  if (currentDashboardWindowId != null) return currentDashboardWindowId;
+
+  const currentTab = await resolveCurrentDashboardTab();
+  if (currentTab?.windowId != null) {
+    currentDashboardWindowId = currentTab.windowId;
+    return currentDashboardWindowId;
+  }
+
+  try {
+    currentDashboardWindowId = await getCurrentWindowId();
+  } catch {
+    currentDashboardWindowId = null;
+  }
+  return currentDashboardWindowId;
+}
+
 function getTabCanonicalUrl(tab) {
   return runtimeGetCanonicalTabUrl ? runtimeGetCanonicalTabUrl(tab?.url || '') : String(tab?.url || '');
 }
@@ -1100,7 +1138,7 @@ function getTabGroupLookup(groups = domainGroups) {
 async function refreshTabSessionModel() {
   await fetchOpenTabs();
   const realTabs = getRealTabs();
-  await loadSessionGroups(realTabs.map(tab => tab.id));
+  await loadSessionGroups(getOpenTabIdsForSessionPruning());
   await loadGroupOrder();
   await loadGroupLabelOverrides();
   await buildDomainGroups(realTabs);
@@ -1608,7 +1646,7 @@ async function removeOpenTabByIdOrUrl(tabId, tabUrl) {
     return numericTabId;
   }
 
-  const allTabs = await chrome.tabs.query({});
+  const allTabs = await queryTabsForDashboardWindow();
   const targetUrl = runtimeGetCanonicalTabUrl ? runtimeGetCanonicalTabUrl(tabUrl || '') : tabUrl;
   const match = allTabs.find(tab => {
     const canonicalUrl = getTabCanonicalUrl(tab);
@@ -2090,7 +2128,7 @@ async function moveDraggedPageChipToGroup(targetGroupKey) {
   let nextState = clearTabsFromSessionGroups(sessionGroupsState, draggedTabIds);
   const targetGroup = ensureManualDropGroup(nextState, targetGroupKey);
   nextState = reassignTabsToSessionGroup(targetGroup.nextState, draggedTabIds, targetGroup.groupId);
-  nextState = pruneSessionGroups(nextState, openTabs.map(tab => tab.id));
+  nextState = pruneSessionGroups(nextState, getOpenTabIdsForSessionPruning());
   logPageChipDragDebug('move-group-save-session', {
     groupId: targetGroup.groupId,
     groupName: targetGroup.groupName,
@@ -2125,7 +2163,7 @@ async function createSessionGroupFromDraggedPageChip() {
   let nextState = clearTabsFromSessionGroups(sessionGroupsState, draggedTabIds);
   const created = createSessionGroupFromDraggedTab(nextState, draggedTabs[0]);
   nextState = reassignTabsToSessionGroup(created.state, draggedTabIds, created.group.id);
-  nextState = pruneSessionGroups(nextState, openTabs.map(tab => tab.id));
+  nextState = pruneSessionGroups(nextState, getOpenTabIdsForSessionPruning());
   logPageChipDragDebug('create-group-save-session', {
     groupId: created.group.id,
     groupName: created.group.name,
@@ -2349,7 +2387,7 @@ async function removeTabAssignments(tabIds = []) {
     nextState = clearTabSessionGroup(nextState, tabId);
   }
 
-  nextState = pruneSessionGroups(nextState, openTabs.map(tab => tab.id));
+  nextState = pruneSessionGroups(nextState, getOpenTabIdsForSessionPruning());
   return saveSessionGroups(nextState);
 }
 
@@ -2378,7 +2416,7 @@ async function closeTabsByUrls(urls) {
     }
   }
 
-  const allTabs = await chrome.tabs.query({});
+  const allTabs = await queryTabsForDashboardWindow();
   const toClose = allTabs
     .filter(tab => {
       const tabUrl = getTabCanonicalUrl(tab);
@@ -2392,7 +2430,7 @@ async function closeTabsByUrls(urls) {
 
   if (toClose.length > 0) await chrome.tabs.remove(toClose);
   await fetchOpenTabs();
-  await loadSessionGroups(openTabs.map(tab => tab.id));
+  await loadSessionGroups(getOpenTabIdsForSessionPruning());
 }
 
 /**
@@ -2404,11 +2442,11 @@ async function closeTabsByUrls(urls) {
 async function closeTabsExact(urls) {
   if (!urls || urls.length === 0) return;
   const urlSet = new Set(urls.map(url => runtimeGetCanonicalTabUrl ? runtimeGetCanonicalTabUrl(url) : url));
-  const allTabs = await chrome.tabs.query({});
+  const allTabs = await queryTabsForDashboardWindow();
   const toClose = allTabs.filter(t => urlSet.has(getTabCanonicalUrl(t))).map(t => t.id);
   if (toClose.length > 0) await chrome.tabs.remove(toClose);
   await fetchOpenTabs();
-  await loadSessionGroups(openTabs.map(tab => tab.id));
+  await loadSessionGroups(getOpenTabIdsForSessionPruning());
 }
 
 /**
@@ -2434,8 +2472,7 @@ async function focusTab(url, tabId = null) {
     } catch { /* fall back to URL matching */ }
   }
 
-  const allTabs = await chrome.tabs.query({});
-  const currentWindow = await chrome.windows.getCurrent();
+  const allTabs = await queryTabsForDashboardWindow();
   const targetUrl = runtimeGetCanonicalTabUrl ? runtimeGetCanonicalTabUrl(url || '') : url;
 
   // Try exact URL match first
@@ -2454,8 +2491,7 @@ async function focusTab(url, tabId = null) {
 
   if (matches.length === 0) return false;
 
-  // Prefer a match in a different window so it actually switches windows
-  const match = matches.find(t => t.windowId !== currentWindow.id) || matches[0];
+  const match = matches.find(t => t.active) || matches[0];
   await chrome.tabs.update(match.id, { active: true });
   await chrome.windows.update(match.windowId, { focused: true });
   if (typeof syncChromeTabGroupExpansionForTab === 'function') {
@@ -2502,7 +2538,7 @@ async function runDefaultSearch(query) {
  * keepOne=false → close all copies.
  */
 async function closeDuplicateTabs(urls, keepOne = true) {
-  const allTabs = await chrome.tabs.query({});
+  const allTabs = await queryTabsForDashboardWindow();
   const toClose = [];
 
   for (const url of urls) {
@@ -2520,7 +2556,7 @@ async function closeDuplicateTabs(urls, keepOne = true) {
 
   if (toClose.length > 0) await chrome.tabs.remove(toClose);
   await fetchOpenTabs();
-  await loadSessionGroups(openTabs.map(tab => tab.id));
+  await loadSessionGroups(getOpenTabIdsForSessionPruning());
 }
 
 /**
@@ -2531,7 +2567,7 @@ async function closeDuplicateTabs(urls, keepOne = true) {
 async function closeTabOutDupes() {
   const newtabUrl = window.location.href;
 
-  const allTabs = await chrome.tabs.query({});
+  const allTabs = await queryTabsForDashboardWindow();
   const currentWindow = await chrome.windows.getCurrent();
   const tabOutTabs = allTabs.filter(t =>
     t.url === newtabUrl || t.url === 'chrome://newtab/'
@@ -3333,7 +3369,7 @@ async function renderStaticDashboard() {
   // --- Fetch tabs ---
   await fetchOpenTabs();
   const realTabs = getRealTabs();
-  await loadSessionGroups(realTabs.map(tab => tab.id));
+  await loadSessionGroups(getOpenTabIdsForSessionPruning());
   await loadGroupOrder();
   await loadGroupLabelOverrides();
   await buildDomainGroups(realTabs);
@@ -3680,7 +3716,7 @@ document.addEventListener('click', async (e) => {
     // and duplicate pages cannot close the wrong tab.
     await removeOpenTabByIdOrUrl(tabId, tabUrl);
     await fetchOpenTabs();
-    await loadSessionGroups(openTabs.map(tab => tab.id));
+    await loadSessionGroups(getOpenTabIdsForSessionPruning());
 
     playCloseSound();
 
@@ -3748,7 +3784,7 @@ document.addEventListener('click', async (e) => {
     }
 
     await fetchOpenTabs();
-    await loadSessionGroups(openTabs.map(tab => tab.id));
+    await loadSessionGroups(getOpenTabIdsForSessionPruning());
     await renderDashboard();
 
     showToast(runtimeT ? runtimeT('toastTabDiscarded') : 'Tab sleeping');
@@ -3854,7 +3890,7 @@ document.addEventListener('click', async (e) => {
     }
 
     await fetchOpenTabs();
-    await loadSessionGroups(openTabs.map(tab => tab.id));
+    await loadSessionGroups(getOpenTabIdsForSessionPruning());
     await renderDashboard();
 
     showToast(runtimeT
@@ -3878,7 +3914,7 @@ document.addEventListener('click', async (e) => {
     }
 
     await fetchOpenTabs();
-    await loadSessionGroups(openTabs.map(tab => tab.id));
+    await loadSessionGroups(getOpenTabIdsForSessionPruning());
     await renderDashboard();
 
     showToast(runtimeT
@@ -4646,6 +4682,7 @@ async function initializeDashboardRuntime() {
   primeEntryAnimations();
   const currentTab = await resolveCurrentDashboardTab();
   currentDashboardTabId = currentTab?.id ?? null;
+  currentDashboardWindowId = currentTab?.windowId ?? null;
   dashboardStartupTabChangeIgnoreUntil = Date.now() + 2000;
   window.__suppressAutoRefreshUntil = Math.max(
     window.__suppressAutoRefreshUntil || 0,
@@ -4660,7 +4697,7 @@ async function initializeDashboardRuntime() {
   if (chromeTabGroupsEnabled) {
     await fetchOpenTabs();
     const realTabs = getRealTabs();
-    await loadSessionGroups(realTabs.map(tab => tab.id));
+    await loadSessionGroups(getOpenTabIdsForSessionPruning());
     if (shouldImportChromeGroupsIntoSessionState()) {
       const importedCount = await importChromeNativeGroupsIntoSessionGroups();
       if (typeof setImportMode === 'function') setImportMode(importedCount > 0);
