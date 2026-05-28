@@ -286,18 +286,32 @@
 
     const validGroupIds = new Set(currentGroups.map(g => g.id));
 
-    // Remove orphaned Chrome groups (tracked but no longer needed)
-    const neededKeys = new Set(Object.keys(desired));
+    // Remove orphaned Chrome groups only for windows represented in this sync.
+    // Other windows may be managed by their own Tab Harbor new-tab page.
+    const desiredWindowIds = new Set(
+      Object.values(desired)
+        .flatMap(windowMap => Object.keys(windowMap))
+        .map(windowId => Number(windowId))
+        .filter(Number.isFinite)
+    );
     for (const [groupKey, windowMap] of Object.entries(chromeGroupMap)) {
-      if (!neededKeys.has(groupKey)) {
-        for (const chromeGroupId of Object.values(windowMap)) {
-          if (validGroupIds.has(chromeGroupId)) {
-            try {
-              const tabs = await chrome.tabs.query({ groupId: chromeGroupId });
-              await ungroupTabs(tabs.map(t => t.id).filter(Boolean));
-            } catch {}
-          }
+      for (const [windowIdStr, chromeGroupId] of Object.entries(windowMap)) {
+        const windowId = Number(windowIdStr);
+        if (!validGroupIds.has(chromeGroupId)) {
+          delete windowMap[windowIdStr];
+          continue;
         }
+
+        if (desiredWindowIds.has(windowId) && !desired[groupKey]?.[windowId]) {
+          try {
+            const tabs = await chrome.tabs.query({ groupId: chromeGroupId });
+            await ungroupTabs(tabs.map(t => t.id).filter(Boolean));
+          } catch {}
+          delete windowMap[windowIdStr];
+        }
+      }
+
+      if (Object.keys(windowMap).length === 0) {
         delete chromeGroupMap[groupKey];
       }
     }

@@ -403,6 +403,41 @@ test('syncChromeTabGroups reuses chromeGroupMap populated by populateChromeGroup
   assert.deepEqual(lastGroupCall.tabIds, [10]);
 });
 
+test('syncChromeTabGroups only removes obsolete mappings in synced windows', async () => {
+  resetChromeGroupState();
+  const ungroupedTabIds = [];
+
+  globalThis.chrome.tabs.group = async (opts) => opts.groupId ?? 700;
+  globalThis.chrome.tabs.ungroup = async (tabIds) => {
+    ungroupedTabIds.push(...tabIds);
+  };
+  globalThis.chrome.tabGroups.update = async () => {};
+  globalThis.chrome.tabGroups.query = async () => [
+    { id: 501, title: 'GitHub', color: 'grey', windowId: 1 },
+    { id: 502, title: 'GitHub', color: 'grey', windowId: 2 },
+    { id: 503, title: 'Docs', color: 'blue', windowId: 2 },
+  ];
+  globalThis.chrome.tabs.query = async (opts) => {
+    if (opts?.groupId === 502) return [{ id: 202, windowId: 2 }];
+    if (opts?.groupId === 503) return [{ id: 203, windowId: 2 }];
+    return [];
+  };
+
+  await saveChromeTabGroupsSetting(true);
+  populateChromeGroupMap([
+    { virtualGroupKey: 'github.com', windowId: 1, chromeGroupId: 501 },
+    { virtualGroupKey: 'github.com', windowId: 2, chromeGroupId: 502 },
+    { virtualGroupKey: 'docs.example', windowId: 2, chromeGroupId: 503 },
+  ]);
+
+  await syncChromeTabGroups([
+    { domain: 'github.com', tabs: [{ id: 101, windowId: 1, url: 'https://github.com' }] },
+  ]);
+
+  assert.deepEqual(ungroupedTabIds, []);
+  assert.equal(getChromeGroupCount(), 2);
+});
+
 test('syncChromeTabGroups in import mode skips creating new groups for ungrouped tabs', async () => {
   resetChromeGroupState();
   let createCalls = 0;
