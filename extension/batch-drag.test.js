@@ -2094,3 +2094,18 @@ test('all-window batch close preserves the last tab of each remote window', asyn
   assert.deepEqual(removed, [3]);
   assert.equal(result.closedCount, 1);
 });
+
+// @lat: [[features#Wrapping group navigation]]
+test('group navigation drop targets distinguish rows at the same horizontal position', () => {
+  const dropIndex = new Function(`${extractFn(runtimeJs, 'getGroupNavDropIndex')}; return getGroupNavDropIndex;`)();
+  const slots = [
+    { left: 0, top: 0, width: 40, height: 40 },
+    { left: 50, top: 0, width: 40, height: 40 },
+    { left: 0, top: 50, width: 40, height: 40 },
+    { left: 50, top: 50, width: 40, height: 40 },
+  ];
+  assert.equal(dropIndex(slots, 20, 20), 0);
+  assert.equal(dropIndex(slots, 20, 70), 2);
+  assert.equal(dropIndex(slots, 80, 110), 3);
+  assert.equal(dropIndex(slots, -20, -10), 0);
+});

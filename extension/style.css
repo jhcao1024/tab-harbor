@@ -1634,23 +1634,16 @@ body.theme-tone-dark .deferred-shell {
 }
 
 .group-nav-list {
-    display: flex;
+    --group-nav-size: 40px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, var(--group-nav-size));
     align-items: center;
     gap: 10px;
-    flex-wrap: nowrap;
     flex: 1;
     min-width: 0;
-    /* Top headroom so the hover lift (translateY(-1px)) never clips the
-       button's top edge against overflow-y: hidden. */
-    min-height: 42px;
+    min-height: 40px;
     padding-top: 2px;
-    overflow-x: auto;
-    overflow-y: hidden;
-    scrollbar-width: none;
-}
-
-.group-nav-list::-webkit-scrollbar {
-    display: none;
+    overflow: visible;
 }
 
 .group-nav-tools {
@@ -1662,9 +1655,8 @@ body.theme-tone-dark .deferred-shell {
 }
 
 .group-nav-placeholder {
-    width: 34px;
-    height: 34px;
-    flex: 0 0 34px;
+    width: var(--group-nav-size, 40px);
+    height: var(--group-nav-size, 40px);
     border-radius: 999px;
     opacity: 0;
     pointer-events: none;
@@ -1704,18 +1696,18 @@ body.theme-tone-dark .deferred-shell {
     -webkit-user-drag: none;
 }
 
-.group-nav-button.is-dragging {
+.group-nav-button.is-dragging { display: none; }
+
+.group-nav-drag-ghost {
     position: fixed;
     left: var(--drag-left, 0);
     top: var(--drag-top, 0);
+    width: var(--drag-size);
+    height: var(--drag-size);
     z-index: 120;
-    opacity: 1;
-    transform: scale(1.04);
-    border-color: var(--theme-accent-muted);
-    box-shadow: 0 12px 24px
-        color-mix(in srgb, var(--workspace-accent) 14%, transparent);
     pointer-events: none;
     transition: none;
+    box-shadow: 0 12px 24px color-mix(in srgb, var(--workspace-accent) 14%, transparent);
 }
 
 .group-nav-button:hover {
@@ -4471,6 +4463,7 @@ body.entry-animations-enabled .deferred-column .section-header {
     .group-nav {
         gap: 6px;
     }
+    .group-nav-list { --group-nav-size: 30px; }
     .group-nav-button {
         width: 30px;
         height: 30px;

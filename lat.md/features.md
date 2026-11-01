@@ -15,3 +15,17 @@ Every dashboard lists tabs from all browser windows, including native Chrome gro
 Window-specific actions, such as saving the current window or restoring into the current window, retain their explicit window filters. The popup already lists all windows.
 
 Regression tests cover the all-window snapshot, optional group query scope, and preserving each remote window's last tab during batch close. Browser verification uses two real windows and a native group in the second window.
+
+## Wrapping group navigation
+
+The Open Tabs group icons use fixed-size grid tracks and wrap into additional rows as space runs out. The dashboard no longer redirects vertical wheel input into horizontal navigation scrolling.
+
+Drag targets use slot rectangles captured at pointer-down, including both horizontal and vertical position. A separate inert ghost follows the pointer while a placeholder occupies the grid. Only a successful drop persists the order; Escape and pointer cancellation discard previews.
+
+Browser checks use 24 groups at desktop and narrow widths and verify cross-row drag, reload persistence, cancellation, and keyboard activation. The popup retains its independent layout.
+
+## Saved tab storage
+
+Saved sessions live in the current browser profile's extension-local storage under `savedTabSessions`. They contain URLs, titles, favicon URLs, and group metadata rather than offline page content.
+
+`extension/tab-sessions.js` reads and writes this data through `chrome.storage.local`. `extension/config-sync.js` includes sessions in JSON configuration exports. Bookmarks use the browser's separate native bookmark store.

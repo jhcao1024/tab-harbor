@@ -191,6 +191,7 @@ let pageChipSelectionAnchorId = '';
 let pageChipPointerToggleGuard = { key: '', until: 0 };
 let draggedGroupButtonEl = null;
 let dragPlaceholderEl = null;
+let groupNavDragGhostEl = null;
 let draggedDrawerItemId = '';
 let draggedDrawerItemEl = null;
 let drawerItemDragState = null;
@@ -2776,6 +2777,8 @@ function clearGroupDragState() {
   draggedGroupId = '';
   dragStartPoint = null;
   draggedGroupButtonEl = null;
+  groupNavDragGhostEl?.remove();
+  groupNavDragGhostEl = null;
   dragPlaceholderEl?.remove();
   dragPlaceholderEl = null;
   document.body.classList.remove('group-dragging');
@@ -3563,9 +3566,9 @@ async function saveDrawerItemOrder(kind, orderIds) {
 }
 
 function updateDraggedButtonPosition(clientX, clientY) {
-  if (!draggedGroupButtonEl || !dragStartPoint) return;
-  draggedGroupButtonEl.style.setProperty('--drag-left', `${clientX - dragStartPoint.offsetX}px`);
-  draggedGroupButtonEl.style.setProperty('--drag-top', `${clientY - dragStartPoint.offsetY}px`);
+  if (!groupNavDragGhostEl || !dragStartPoint) return;
+  groupNavDragGhostEl.style.setProperty('--drag-left', `${clientX - dragStartPoint.offsetX}px`);
+  groupNavDragGhostEl.style.setProperty('--drag-top', `${clientY - dragStartPoint.offsetY}px`);
 }
 
 function ensureDragPlaceholder() {
@@ -3573,45 +3576,41 @@ function ensureDragPlaceholder() {
 
   dragPlaceholderEl = document.createElement('div');
   dragPlaceholderEl.className = 'group-nav-placeholder';
+  dragPlaceholderEl.setAttribute('aria-hidden', 'true');
   draggedGroupButtonEl.insertAdjacentElement('afterend', dragPlaceholderEl);
   return dragPlaceholderEl;
 }
 
-function previewDraggedOrder(clientX) {
-  const navListEl = document.querySelector('#workspaceTopNav .group-nav-list[data-nav-kind="open-tabs"]');
-  if (!navListEl || !draggedGroupId) return;
+function getGroupNavDropIndex(slots, clientX, clientY) {
+  let nearestIndex = 0;
+  let nearestDistance = Infinity;
+  slots.forEach((rect, index) => {
+    const distance = Math.hypot(clientX - rect.left - rect.width / 2, clientY - rect.top - rect.height / 2);
+    if (distance < nearestDistance) {
+      nearestDistance = distance;
+      nearestIndex = index;
+    }
+  });
+  return nearestIndex;
+}
+
+function previewDraggedOrder(clientX, clientY) {
+  const navListEl = draggedGroupButtonEl?.parentElement;
+  if (!navListEl || !dragStartPoint) return;
+  const targetIndex = getGroupNavDropIndex(
+    dragStartPoint.slots, clientX, clientY + window.scrollY - dragStartPoint.scrollY
+  );
+  if (targetIndex === dragStartPoint.lastTargetIndex) return;
+  dragStartPoint.lastTargetIndex = targetIndex;
 
   const placeholder = ensureDragPlaceholder();
   const buttons = [...navListEl.querySelectorAll('.group-nav-button:not(.is-dragging)')];
-  let insertBeforeButton = null;
-
-  for (const button of buttons) {
-    const rect = button.getBoundingClientRect();
-    if (clientX < rect.left + rect.width / 2) {
-      insertBeforeButton = button;
-      break;
-    }
-  }
-
-  if (insertBeforeButton) {
-    navListEl.insertBefore(placeholder, insertBeforeButton);
-  } else {
-    navListEl.appendChild(placeholder);
-  }
-
-  const previewOrderKeys = [...navListEl.children]
-    .map(node => {
-      if (node === placeholder) return draggedGroupId;
-      if (node.classList?.contains('group-nav-button') && !node.classList.contains('is-dragging')) {
-        return node.dataset.groupId || '';
-      }
-      return '';
-    })
-    .filter(Boolean);
-
-  if (previewOrderKeys.length > 0) {
-    applyLiveGroupOrder(previewOrderKeys, { reorderCards: false, reorderNav: false });
-  }
+  navListEl.insertBefore(placeholder, buttons[targetIndex] || null);
+  dragStartPoint.previewOrder = [...navListEl.children].map(node => {
+    if (node === placeholder) return draggedGroupId;
+    if (node === draggedGroupButtonEl) return '';
+    return node.dataset?.groupId || '';
+  }).filter(Boolean);
 }
 
 async function removeTabAssignments(tabIds = []) {
@@ -7414,7 +7413,7 @@ document.addEventListener('pointercancel', async (e) => {
 
 document.addEventListener('pointerdown', (e) => {
   const button = e.target.closest('.group-nav-button[data-nav-kind="open-tabs"]');
-  if (!button) return;
+  if (!button || e.button !== 0) return;
 
   const groupId = button.dataset.groupId || '';
   // Chrome-group cards follow the native browser strip and are intentionally
@@ -7425,7 +7424,13 @@ document.addEventListener('pointerdown', (e) => {
   draggedGroupId = groupId;
   draggedGroupButtonEl = button;
   const rect = button.getBoundingClientRect();
+  const buttons = [...button.parentElement.querySelectorAll('.group-nav-button')];
   dragStartPoint = {
+    slots: buttons.map(node => node.getBoundingClientRect()),
+    scrollY: window.scrollY,
+    size: rect.width,
+    lastTargetIndex: buttons.indexOf(button),
+    previewOrder: buttons.map(node => node.dataset.groupId),
     x: e.clientX,
     y: e.clientY,
     offsetX: e.clientX - rect.left,
@@ -7444,21 +7449,34 @@ document.addEventListener('pointermove', (e) => {
   if (!dragStartPoint.moved) {
     dragStartPoint.moved = true;
     document.body.classList.add('group-dragging');
-    draggedGroupButtonEl?.classList.add('is-dragging');
     ensureDragPlaceholder();
+    groupNavDragGhostEl = draggedGroupButtonEl.cloneNode(true);
+    groupNavDragGhostEl.classList.add('group-nav-drag-ghost');
+    groupNavDragGhostEl.removeAttribute('data-nav-kind');
+    groupNavDragGhostEl.setAttribute('aria-hidden', 'true');
+    groupNavDragGhostEl.inert = true;
+    groupNavDragGhostEl.style.setProperty('--drag-size', `${dragStartPoint.size}px`);
+    document.body.appendChild(groupNavDragGhostEl);
+    draggedGroupButtonEl.classList.add('is-dragging');
   }
 
   updateDraggedButtonPosition(e.clientX, e.clientY);
-  previewDraggedOrder(e.clientX);
+  previewDraggedOrder(e.clientX, e.clientY);
 });
 
 document.addEventListener('pointerup', async () => {
   if (!draggedGroupId) return;
 
   const moved = dragStartPoint?.moved;
-  const nextGroupOrder = groupOrderState.sessionOrder?.slice() || domainGroups.map(group => String(group.domain));
+  const nextGroupOrder = dragStartPoint?.previewOrder || domainGroups.map(group => String(group.domain));
   if (dragStartPoint?.moved) {
-    await saveGroupOrder(groupOrderState);
+    try {
+      await persistGroupOrder(nextGroupOrder);
+    } catch (error) {
+      clearGroupDragState();
+      showToast(runtimeT ? runtimeT('toastGroupOrderSaveFailed') : 'Could not save group order');
+      return;
+    }
     suppressJumpUntil = Date.now() + 250;
   }
 
@@ -7468,6 +7486,11 @@ document.addEventListener('pointerup', async () => {
     applyLiveGroupOrder(nextGroupOrder, { reorderCards: true, reorderNav: true });
     await syncChromeTabGroupsWithoutImportEcho();
   }
+});
+
+document.addEventListener('pointercancel', clearGroupDragState);
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && draggedGroupId) clearGroupDragState();
 });
 
 document.addEventListener('click', (e) => {
@@ -7767,23 +7790,6 @@ async function initializeDashboardRuntime() {
   syncSearchPlaceholder();
   sleepControlEnabled = (typeof themePreferences !== 'undefined' && themePreferences.sleepControlEnabled === true);
 
-  const navHost = getWorkspaceTopNavHost();
-  if (navHost && !navHost.dataset.wheelHijackAttached) {
-    navHost.dataset.wheelHijackAttached = '1';
-    // The nav scrollbars are hidden; let the vertical wheel scroll the
-    // group lists horizontally (delegated so it survives re-renders) — but
-    // only when the list can actually scroll, so a wheel over a short nav
-    // passes through instead of trapping the page.
-    navHost.addEventListener('wheel', (e) => {
-      const list = e.target.closest('.group-nav-list');
-      if (!list) return;
-      if (list.scrollWidth <= list.clientWidth) return;
-      if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
-        e.preventDefault();
-        list.scrollLeft += e.deltaY;
-      }
-    }, { passive: false });
-  }
   if (typeof loadChromeTabGroupsSetting === 'function') {
     chromeTabGroupsEnabled = await loadChromeTabGroupsSetting();
   }

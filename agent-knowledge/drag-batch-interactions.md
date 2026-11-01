@@ -56,3 +56,7 @@ PR #42 把 close/sleep/dedup/merge 收敛为共享函数，核心模式是 **sta
 - `getSelectedBatchTabIds()` / `getPageChipTabIdMap()` 用当前 DOM 的 sort id → tab id 映射，跨卡片保留原始 chip id。
 - `__suppressAutoRefreshUntil` 手动清零易漏，优先用 `runWithSuppressedRefresh` / `beginBatchAction`+`finishBatchAction`（final 保证清）。
 - 测试集中在 `batch-drag.test.js`（+1018 行），改拖拽逻辑必跑。
+
+## Portus wrapping group navigation
+
+The home group navigation now uses fixed-size grid tracks and multiple rows. Dragging captures stable two-dimensional slot positions, uses an inert ghost and a layout placeholder, and persists only on drop. Escape or pointer cancellation removes the preview. The dashboard no longer hijacks vertical wheel input for horizontal navigation.

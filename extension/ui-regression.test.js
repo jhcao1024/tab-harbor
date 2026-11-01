@@ -114,9 +114,9 @@ test('home and saved section headers share a fixed title column and top nav stay
   assert.match(css, /\.saved-sessions-section \.section-count \{[\s\S]*width:\s*96px;/);
   assert.match(css, /\.section-icon-action \{[\s\S]*width:\s*30px;[\s\S]*height:\s*30px;[\s\S]*flex-shrink:\s*0;/);
   assert.match(css, /\.group-nav-wide \{[\s\S]*min-height:\s*40px;[\s\S]*flex-wrap:\s*nowrap;[\s\S]*align-items:\s*center;/);
-  assert.match(css, /\.group-nav-list \{[\s\S]*flex-wrap:\s*nowrap;/);
+  assert.match(css, /\.group-nav-list \{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*repeat\(auto-fill, var\(--group-nav-size\)\);/);
   assert.match(css, /\.group-nav-list \{[\s\S]*min-height:\s*40px;/);
-  assert.match(css, /\.group-nav-list \{[\s\S]*overflow-x:\s*auto;/);
+  assert.match(css, /\.group-nav-list \{[^}]*overflow:\s*visible;/);
 });
 
 test('group close control is icon-only and tab rows expose session save actions', () => {
@@ -447,7 +447,9 @@ test('group order state is always treated as a durable persisted order', () => {
 
 test('drag preview only reorders top icons and defers card refresh until drop', () => {
   assert.match(appJs, /if \(options\.reorderCards !== false\)/);
-  assert.match(appJs, /applyLiveGroupOrder\(previewOrderKeys,\s*\{\s*reorderCards:\s*false/);
+  const preview = appJs.slice(appJs.indexOf('function previewDraggedOrder('), appJs.indexOf('async function removeTabAssignments'));
+  assert.match(preview, /dragStartPoint\.previewOrder =/);
+  assert.doesNotMatch(preview, /applyLiveGroupOrder|saveGroupOrder|persistGroupOrder/);
   assert.match(appJs, /async function renderOpenTabsLayout\(\{ rebuildGroups = true, syncChrome = false, patchDom = false, changedGroupKeys = \[\] \} = \{\}\)/);
   assert.match(appJs, /await renderOpenTabsLayout\(\{[\s\S]*rebuildGroups: true,[\s\S]*syncChrome: true,[\s\S]*patchDom: true,[\s\S]*changedGroupKeys:/);
 });
@@ -455,8 +457,8 @@ test('drag preview only reorders top icons and defers card refresh until drop', 
 test('group drag commit reorders cards in place instead of refreshing the whole dashboard', () => {
   assert.match(appJs, /function animateMissionCards\(missionsEl, previousRects\)/);
   assert.match(appJs, /animateMissionCards\(missionsEl,\s*previousMissionRects\)/);
-  assert.match(appJs, /const nextGroupOrder = groupOrderState\.sessionOrder\?\.slice\(\) \|\| domainGroups\.map\(group => String\(group\.domain\)\)/);
-  assert.match(appJs, /document\.addEventListener\('pointerup', async \(\) => \{[\s\S]*const moved = dragStartPoint\?\.moved;[\s\S]*const nextGroupOrder = groupOrderState\.sessionOrder\?\.slice\(\) \|\| domainGroups\.map\(group => String\(group\.domain\)\);[\s\S]*clearGroupDragState\(\);[\s\S]*if \(moved\) \{[\s\S]*applyLiveGroupOrder\(nextGroupOrder,\s*\{\s*reorderCards:\s*true,\s*reorderNav:\s*true\s*\}\);[\s\S]*\}[\s\S]*\}\);/);
+  assert.match(appJs, /const nextGroupOrder = dragStartPoint\?\.previewOrder \|\| domainGroups\.map\(group => String\(group\.domain\)\)/);
+  assert.match(appJs, /document\.addEventListener\('pointerup', async \(\) => \{[\s\S]*const moved = dragStartPoint\?\.moved;[\s\S]*const nextGroupOrder = dragStartPoint\?\.previewOrder \|\| domainGroups\.map\(group => String\(group\.domain\)\);[\s\S]*clearGroupDragState\(\);[\s\S]*if \(moved\) \{[\s\S]*applyLiveGroupOrder\(nextGroupOrder,\s*\{\s*reorderCards:\s*true,\s*reorderNav:\s*true\s*\}\);[\s\S]*\}[\s\S]*\}\);/);
   assert.match(appJs, /applyLiveGroupOrder\(nextGroupOrder,\s*\{\s*reorderCards:\s*true,\s*reorderNav:\s*true\s*\}\)/);
   assert.match(appJs, /function suppressChromeTabGroupsImport\(durationMs = 1200\)/);
   assert.match(appJs, /function syncChromeTabGroupsWithoutImportEcho\(\)/);
@@ -1260,8 +1262,6 @@ test('search engine can be customized with presets or a custom URL', () => {
   assert.match(runtimeJs, /await loadThemePreferences\(\);\s*syncSearchPlaceholder\(\);/);
   assert.match(runtimeJs, /saveThemePreferences\(\{\s*searchEngine: engine\s*\}\);\s*syncSearchPlaceholder\(\);/);
   assert.match(runtimeJs, /customSection\.style\.display = engine === 'custom' \? '' : 'none';/);
-  assert.match(runtimeJs, /navHost\.addEventListener\('wheel', \(e\) => \{[\s\S]*e\.target\.closest\('\.group-nav-list'\)[\s\S]*if \(list\.scrollWidth <= list\.clientWidth\) return;[\s\S]*if \(Math\.abs\(e\.deltaY\) > Math\.abs\(e\.deltaX\)\) \{[\s\S]*e\.preventDefault\(\);[\s\S]*list\.scrollLeft \+= e\.deltaY;/);
-  assert.match(runtimeJs, /navHost\.dataset\.wheelHijackAttached = '1';/);
   // Malformed custom URLs must not replace the workspace with an error page.
   assert.match(runtimeJs, /validSearchUrl = \/\^https\?:\$\/\.test\(new URL\(searchUrl\)\.protocol\);/);
   assert.match(runtimeJs, /showToast\(runtimeT \? runtimeT\('toastInvalidCustomSearchUrl'\) : 'Invalid custom search URL, using browser default'\);/);
