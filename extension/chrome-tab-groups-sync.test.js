@@ -1166,3 +1166,15 @@ test('collapseChromeTabGroupsInWindow collapses only dashboard-managed groups in
     { id: 101, collapsed: true },
   ]);
 });
+
+test('queryUserChromeGroups accepts all-window scope without treating null as window zero', async () => {
+  resetChromeGroupState();
+  stubTabGroupsQuery([
+    { id: 901, title: 'First window', color: 'blue', windowId: 7 },
+    { id: 902, title: 'Second window', color: 'red', windowId: 8 },
+  ]);
+  globalThis.chrome.tabs.query = async ({ groupId }) => [{ id: groupId + 10, index: 0 }];
+  const groups = await queryUserChromeGroups(null);
+  assert.deepEqual(groups.map(group => group.id).sort(), [901, 902]);
+  assert.deepEqual(groups.map(group => group.windowId).sort(), [7, 8]);
+});

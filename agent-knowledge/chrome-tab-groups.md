@@ -12,7 +12,7 @@
 ## 关键 API（合并后代码真实符号）
 
 - `syncChromeTabGroups(domainGroups)`：根据 domainGroups 计算 desired 状态，创建/更新/删除镜像组，跳过 `isManual`/`isChromeGroup` 组与 `__session_group__:`/`__chrome_group__:` 前缀组。
-- `queryUserChromeGroups(windowId)`：返回该窗口内**未被扩展管理**的原生组（含 title/color/collapsed/minIndex/tabIds），按标签条位置排序。
+- `queryUserChromeGroups(windowId)`：省略 windowId 或传 null 时返回所有窗口，传有效窗口 ID 时返回该窗口内**未被扩展管理**的原生组（含 title/color/collapsed/minIndex/tabIds），按标签条位置排序。
 - `getManagedChromeGroupIds()`：所有受管镜像组 id 集合。
 - `loadPersistedChromeGroupMap()` / `persistChromeGroupMap()`：镜像组持久化到 `chromeTabGroupsMeta`。
 - `reorderGroupedTabs(chromeGroupId, desiredTabIds, windowId)`：把原生组内标签重排为 desired 顺序；以 **live query 的 windowId 为准**（调用者传的可能过期）；只移动确实在组内的 id；失败 `console.warn` 不静默。

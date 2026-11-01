@@ -224,17 +224,14 @@ test('close feedback and saved-session copy use confirmed close results', () => 
   assert.match(i18nJs, /toastTabsCloseFailed: 'Could not close tabs'/);
 });
 
-test('new tab dashboard scopes visible open tabs to its own browser window', () => {
-  assert.match(runtimeJs, /let currentDashboardWindowId = null;/);
+test('new tab dashboard shares an all-window snapshot across display and actions', () => {
   assert.match(runtimeJs, /let allOpenTabIds = \[\];/);
-  assert.match(runtimeJs, /const visibleTabs = currentWindowId == null\s*\?\s*tabs\s*:\s*tabs\.filter\(t => t\.windowId === currentWindowId\);/);
-  assert.match(runtimeJs, /openTabs = visibleTabs\.map\(t =>/);
+  assert.match(runtimeJs, /openTabs = tabs\.map\(t =>/);
   assert.match(runtimeJs, /function getOpenTabIdsForSessionPruning\(\)/);
-  assert.match(runtimeJs, /async function queryTabsForDashboardWindow\(\) \{[\s\S]*chrome\.tabs\.query\(\{\s*windowId: currentWindowId\s*\}\)/);
-  assert.doesNotMatch(runtimeJs, /if \(currentDashboardWindowId != null\) return currentDashboardWindowId;/);
+  assert.match(runtimeJs, /async function queryTabsForWorkspace\(\) \{[\s\S]*chrome\.tabs\.query\(\{\}\)/);
   assert.match(runtimeJs, /await loadSessionGroups\(getOpenTabIdsForSessionPruning\(\)\)/);
-  assert.match(runtimeJs, /async function closeTabsByUrlsSafely\(urls,\s*\{ exact = false, playSound = true \} = \{\}\) \{[\s\S]*const allTabs = await queryTabsForDashboardWindow\(\);/);
-  assert.match(runtimeJs, /async function closeDuplicatesByUrls\(urls,\s*\{ keepOne = true, playSound = true \} = \{\}\) \{[\s\S]*const allTabs = await queryTabsForDashboardWindow\(\);/);
+  assert.match(runtimeJs, /async function closeTabsByUrlsSafely\(urls,\s*\{ exact = false, playSound = true \} = \{\}\) \{[\s\S]*const allTabs = await queryTabsForWorkspace\(\);/);
+  assert.match(runtimeJs, /async function closeDuplicatesByUrls\(urls,\s*\{ keepOne = true, playSound = true \} = \{\}\) \{[\s\S]*const allTabs = await queryTabsForWorkspace\(\);/);
   // Closing tabs must never remove a window's last tab: that would close
   // the window and, for the last window, exit the browser.
   assert.match(runtimeJs, /function ensureWindowsKeepLastTab\(allTabs, toCloseIds\) \{[\s\S]*winTabs\.every\(t => toCloseSet\.has\(t\.id\)\)[\s\S]*const keep = winTabs\.find\(t => t\.active\) \|\| winTabs\[0\];[\s\S]*toCloseSet\.delete\(keep\.id\);/);

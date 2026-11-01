@@ -224,7 +224,7 @@ test('sleepTabsByIds classifies stale, active, failed and discarded tabs (C4)', 
 test('closeTabsSafely keeps every window last tab and tolerates vanished ids (C4)', async () => {
   const fn = new Function(`${extractFn(runtimeJs, 'closeTabsSafely')}\nreturn closeTabsSafely;`)();
   const removed = [];
-  globalThis.queryTabsForDashboardWindow = async () => [
+  globalThis.queryTabsForWorkspace = async () => [
     { id: 1, windowId: 7 },
     { id: 2, windowId: 7 },
     { id: 3, windowId: 8 },
@@ -248,7 +248,7 @@ test('closeTabsSafely keeps every window last tab and tolerates vanished ids (C4
   const result = await fn([1, 2, 3]);
   assert.equal(result.closedCount, 1);
   assert.deepEqual(removed, [2]);
-  delete globalThis.queryTabsForDashboardWindow;
+  delete globalThis.queryTabsForWorkspace;
   delete globalThis.ensureWindowsKeepLastTab;
   delete globalThis.chrome;
   delete globalThis.playCloseSound;
@@ -436,7 +436,7 @@ test('user-created Chrome groups become first-class cards; their tabs leave doma
   // buildDomainGroups queries unmanaged groups regardless of the sync toggle
   // (recognition is toggle-independent; the toggle only controls the push).
   assert.match(runtimeJs, /let userChromeGroups = \[\];\s*if \(typeof queryUserChromeGroups === 'function'\) \{/);
-  assert.match(runtimeJs, /userChromeGroups = await queryUserChromeGroups\(windowId\);/);
+  assert.match(runtimeJs, /userChromeGroups = await queryUserChromeGroups\(\);/);
   assert.match(runtimeJs, /const chromeOwnedTabIds = new Set\(\(userChromeGroups \|\| \[\]\)\.flatMap\(g => g\.tabIds \|\| \[\]\)\);/);
   // C7 fallback must exclude dashboard-managed mirror groups: only unmanaged
   // native-group tabs are treated as user-owned, otherwise mirror tabs vanish.
@@ -737,7 +737,7 @@ test('batch merge names the group from the selected tabs content (domain heurist
 });
 
 test('batch close never closes a window\'s last tab', () => {
-  assert.match(runtimeJs, /async function closeTabsSafely\(tabIds,\s*\{ playSound = true \} = \{\}\) \{[\s\S]{0,400}const allTabs = await queryTabsForDashboardWindow\(\);\s*const safeToClose = ensureWindowsKeepLastTab\(allTabs, tabIds\);/);
+  assert.match(runtimeJs, /async function closeTabsSafely\(tabIds,\s*\{ playSound = true \} = \{\}\) \{[\s\S]{0,400}const allTabs = await queryTabsForWorkspace\(\);\s*const safeToClose = ensureWindowsKeepLastTab\(allTabs, tabIds\);/);
   assert.match(runtimeJs, /if \(closedCount > 0 && playSound\) playCloseSound\(\);/);
 });
 
@@ -1121,7 +1121,7 @@ test('closeTabsByUrlsSafely matches hostnames, exact URLs and file:// exactly', 
   let captured = null;
   globalThis.runtimeGetCanonicalTabUrl = (url) => url;
   globalThis.getTabCanonicalUrl = (tab) => String(tab?.url || '');
-  globalThis.queryTabsForDashboardWindow = async () => [
+  globalThis.queryTabsForWorkspace = async () => [
     { id: 1, windowId: 1, url: 'https://example.com/a' },
     { id: 2, windowId: 1, url: 'https://example.com/b' },
     { id: 3, windowId: 1, url: 'https://other.org/x' },
@@ -1152,7 +1152,7 @@ test('closeTabsByUrlsSafely matches hostnames, exact URLs and file:// exactly', 
 
   delete globalThis.runtimeGetCanonicalTabUrl;
   delete globalThis.getTabCanonicalUrl;
-  delete globalThis.queryTabsForDashboardWindow;
+  delete globalThis.queryTabsForWorkspace;
   delete globalThis.closeTabsSafely;
 });
 
@@ -1161,7 +1161,7 @@ test('closeDuplicatesByUrls keeps the active copy when keepOne is set', async ()
   let captured = null;
   globalThis.runtimeGetCanonicalTabUrl = (url) => url;
   globalThis.getTabCanonicalUrl = (tab) => String(tab?.url || '');
-  globalThis.queryTabsForDashboardWindow = async () => [
+  globalThis.queryTabsForWorkspace = async () => [
     { id: 1, windowId: 1, url: 'https://example.com/x', active: false },
     { id: 2, windowId: 1, url: 'https://example.com/x', active: true },
     { id: 3, windowId: 1, url: 'https://example.com/y', active: false },
@@ -1185,7 +1185,7 @@ test('closeDuplicatesByUrls keeps the active copy when keepOne is set', async ()
 
   delete globalThis.runtimeGetCanonicalTabUrl;
   delete globalThis.getTabCanonicalUrl;
-  delete globalThis.queryTabsForDashboardWindow;
+  delete globalThis.queryTabsForWorkspace;
   delete globalThis.closeTabsSafely;
 });
 
@@ -1970,7 +1970,7 @@ test('focusTab closes only its dashboard after a successful switch', async () =>
     };
     const focus = new Function('chrome', 'currentDashboardTabId', `
       const getTabIdValue = value => value == null ? null : Number(value);
-      const queryTabsForDashboardWindow = async () => ${mode === 'missing' ? '[]' : '[{ id: 42, windowId: 7, url: "https://example.com/" }]'};
+      const queryTabsForWorkspace = async () => ${mode === 'missing' ? '[]' : '[{ id: 42, windowId: 7, url: "https://example.com/" }]'};
       const runtimeGetCanonicalTabUrl = null;
       const getTabCanonicalUrl = tab => tab.url;
       const syncChromeTabGroupExpansionForTab = async () => {};
@@ -2046,4 +2046,51 @@ test('saved session restore closes its originating dashboard only after success 
       }
     }
   }
+});
+
+// @lat: [[features#All-window tab workspace]]
+test('dashboard fetch retains tabs and group membership from every window', async () => {
+  const tabs = [
+    { id: 1, windowId: 7, url: 'https://one.test/', groupId: -1 },
+    { id: 2, windowId: 8, url: 'https://two.test/', groupId: 42 },
+  ];
+  const run = new Function('chrome', `
+    let openTabs = [], allOpenTabIds = [], hasAuthoritativeOpenTabsSnapshot = false;
+    const waitForSessionGroupTabReplacementMigrations = async () => {};
+    const getDashboardWindowIdForOpenTabs = async () => 7;
+    const runtimeParseSuspendedTabUrl = null, runtimeGetCanonicalTabUrl = null;
+    const isTabHarborNewTabUrl = () => false;
+    ${extractFn(runtimeJs, 'fetchOpenTabs')}
+    return fetchOpenTabs().then(() => ({ openTabs, allOpenTabIds, hasAuthoritativeOpenTabsSnapshot }));
+  `);
+  const result = await run({ tabs: { query: async () => tabs } });
+  assert.deepEqual(result.openTabs.map(tab => [tab.id, tab.windowId, tab.groupId]), [[1, 7, -1], [2, 8, 42]]);
+  assert.deepEqual(result.allOpenTabIds, [1, 2]);
+  assert.equal(result.hasAuthoritativeOpenTabsSnapshot, true);
+});
+
+test('all-window batch close preserves the last tab of each remote window', async () => {
+  const tabs = [
+    { id: 1, windowId: 7, active: true },
+    { id: 2, windowId: 8, active: true },
+    { id: 3, windowId: 8, active: false },
+    { id: 4, windowId: 9, active: true },
+  ];
+  const removed = [];
+  const run = new Function('chrome', `
+    const playCloseSound = () => {};
+    ${extractFn(runtimeJs, 'queryTabsForWorkspace')}
+    ${extractFn(runtimeJs, 'ensureWindowsKeepLastTab')}
+    ${extractFn(runtimeJs, 'closeTabsSafely')}
+    return closeTabsSafely([2, 3, 4]);
+  `);
+  const result = await run({ tabs: {
+    query: async query => {
+      assert.deepEqual(query, {}, 'safety checks need tabs from every window');
+      return tabs;
+    },
+    remove: async id => { removed.push(id); },
+  } });
+  assert.deepEqual(removed, [3]);
+  assert.equal(result.closedCount, 1);
 });

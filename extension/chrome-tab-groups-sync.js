@@ -349,10 +349,9 @@
     if (!isChromeApiAvailable()) return [];
     let hadPartialFailure = false;
     try {
-      // Let the API filter by window (windowId is always a real window id from
-      // getDashboardWindowIdForOpenTabs); fall back to an unfiltered query only
-      // for a defensive non-finite id.
-      const groups = Number.isFinite(Number(windowId))
+      // An omitted/null window includes every window in the workspace.
+      // Explicit window ids remain supported for window-specific callers.
+      const groups = windowId != null && Number.isFinite(Number(windowId))
         ? await chrome.tabGroups.query({ windowId: Number(windowId) })
         : await chrome.tabGroups.query({});
       const managed = getManagedChromeGroupIds();

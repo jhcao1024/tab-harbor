@@ -126,7 +126,7 @@ const {
    access to chrome.tabs and chrome.storage. No middleman needed.
    ---------------------------------------------------------------- */
 
-// Visible open tabs for this dashboard window — populated by fetchOpenTabs()
+// Open tabs across every browser window — populated by fetchOpenTabs()
 let openTabs = [];
 let allOpenTabIds = [];
 // A failed Chrome query must never be interpreted as proof that every tab was
@@ -252,7 +252,6 @@ let searchSubmitInFlight = false;
 // chrome.* calls never contend with a navigation's chrome.* calls.
 let searchSuggestionsGeneration = 0;
 let currentDashboardTabId = null;
-let currentDashboardWindowId = null;
 let dashboardStartupTabChangeIgnoreUntil = 0;
 const ENTRY_ANIMATIONS_CLASS = 'entry-animations-enabled';
 let entryAnimationsTimer = null;
@@ -926,22 +925,16 @@ function warmHitokotoCacheInBackground() {
 /**
  * fetchOpenTabs()
  *
- * Reads the open tabs of the dashboard's window directly from Chrome
- * (all windows when the dashboard window id is unavailable). Flags Tab
- * Harbor's own pages via isTabOut so duplicate new tabs can be detected.
+ * Reads open tabs across all browser windows directly from Chrome. Flags
+ * Portus pages via isTabOut so duplicate new tabs can be detected.
  */
 async function fetchOpenTabs() {
   await waitForSessionGroupTabReplacementMigrations();
   try {
-    const currentWindowId = await getDashboardWindowIdForOpenTabs();
     const tabs = await chrome.tabs.query({});
     allOpenTabIds = tabs.map(tab => tab?.id).filter(tabId => tabId != null);
     hasAuthoritativeOpenTabsSnapshot = true;
-    const visibleTabs = currentWindowId == null
-      ? tabs
-      : tabs.filter(t => t.windowId === currentWindowId);
-
-    openTabs = visibleTabs.map(t => {
+    openTabs = tabs.map(t => {
       const rawUrl = t.url || '';
       const suspended = runtimeParseSuspendedTabUrl
         ? runtimeParseSuspendedTabUrl(rawUrl)
@@ -1126,15 +1119,10 @@ function ensureSessionGroupTabReplacementSubscription() {
   sessionGroupTabReplacementListenerAttached = true;
 }
 
-async function queryTabsForDashboardWindow() {
-  const currentWindowId = await getDashboardWindowIdForOpenTabs();
-  if (currentWindowId == null) return chrome.tabs.query({});
-
-  try {
-    return await chrome.tabs.query({ windowId: currentWindowId });
-  } catch {
-    return chrome.tabs.query({});
-  }
+async function queryTabsForWorkspace() {
+  // Action queries must match the all-window cards, including the last-tab
+  // protection used by batch close operations.
+  return chrome.tabs.query({});
 }
 
 async function loadSessionGroups(openTabIds = []) {
@@ -1581,20 +1569,6 @@ async function getCurrentWindowId() {
   return currentWindow?.id;
 }
 
-async function getDashboardWindowIdForOpenTabs() {
-  const currentTab = await resolveCurrentDashboardTab();
-  if (currentTab?.windowId != null) {
-    currentDashboardWindowId = currentTab.windowId;
-    return currentDashboardWindowId;
-  }
-
-  try {
-    currentDashboardWindowId = await getCurrentWindowId();
-  } catch {
-    currentDashboardWindowId = null;
-  }
-  return currentDashboardWindowId;
-}
 
 function getTabCanonicalUrl(tab) {
   return runtimeGetCanonicalTabUrl ? runtimeGetCanonicalTabUrl(tab?.url || '') : String(tab?.url || '');
@@ -1662,7 +1636,7 @@ async function closeTabsSafely(tabIds, { playSound = true } = {}) {
   let closedCount = 0;
   const closedTabIds = new Set();
   if (tabIds.length) {
-    const allTabs = await queryTabsForDashboardWindow();
+    const allTabs = await queryTabsForWorkspace();
     const safeToClose = ensureWindowsKeepLastTab(allTabs, tabIds);
     // Close in parallel so large batch operations do not degrade to N serial
     // Chrome API round-trips; individual failures are still isolated.
@@ -1683,7 +1657,7 @@ async function closeTabsSafely(tabIds, { playSound = true } = {}) {
 async function closeTabsByUrlsSafely(urls, { exact = false, playSound = true } = {}) {
   if (!urls || urls.length === 0) return { closedCount: 0, closedTabIds: new Set() };
 
-  const allTabs = await queryTabsForDashboardWindow();
+  const allTabs = await queryTabsForWorkspace();
   let matched = [];
 
   if (exact) {
@@ -1719,7 +1693,7 @@ async function closeTabsByUrlsSafely(urls, { exact = false, playSound = true } =
 
 async function closeDuplicatesByUrls(urls, { keepOne = true, playSound = true } = {}) {
   if (!urls || urls.length === 0) return { closedCount: 0, closedTabIds: new Set() };
-  const allTabs = await queryTabsForDashboardWindow();
+  const allTabs = await queryTabsForWorkspace();
   const toClose = [];
 
   for (const url of urls) {
@@ -2602,7 +2576,7 @@ async function removeOpenTabByIdOrUrl(tabId, tabUrl) {
     return null;
   }
 
-  const allTabs = await queryTabsForDashboardWindow();
+  const allTabs = await queryTabsForWorkspace();
   const targetUrl = runtimeGetCanonicalTabUrl ? runtimeGetCanonicalTabUrl(tabUrl || '') : tabUrl;
   const match = allTabs.find(tab => {
     const canonicalUrl = getTabCanonicalUrl(tab);
@@ -3707,7 +3681,7 @@ async function focusTab(url, tabId = null) {
     } catch { /* fall back to URL matching */ }
   }
 
-  const allTabs = await queryTabsForDashboardWindow();
+  const allTabs = await queryTabsForWorkspace();
   const targetUrl = runtimeGetCanonicalTabUrl ? runtimeGetCanonicalTabUrl(url || '') : url;
 
   // Try exact URL match first
@@ -4495,7 +4469,7 @@ async function ungroupTabsWithStaleRetry(tabIds) {
  * closed keeps it instead of closing the window.
  */
 async function closeTabOutDupes() {
-  const allTabs = await queryTabsForDashboardWindow();
+  const allTabs = await queryTabsForWorkspace();
   const currentWindow = await chrome.windows.getCurrent();
   const tabOutTabs = allTabs.filter(t => isTabHarborNewTabUrl(t.url));
 
@@ -5426,12 +5400,7 @@ async function buildDomainGroups(realTabs = getRealTabs()) {
   let userChromeGroups = [];
   if (typeof queryUserChromeGroups === 'function') {
     try {
-      const windowId = await getDashboardWindowIdForOpenTabs();
-      if (windowId != null) {
-        userChromeGroups = await queryUserChromeGroups(windowId);
-      } else {
-        console.warn('[tab-harbor] buildDomainGroups: no dashboard window id — skipping Chrome group cards');
-      }
+      userChromeGroups = await queryUserChromeGroups();
     } catch (err) {
       console.warn('[tab-harbor] buildDomainGroups: Chrome group detection failed:', err);
     }
@@ -7789,7 +7758,6 @@ async function initializeDashboardRuntime() {
   primeEntryAnimations();
   const currentTab = await resolveCurrentDashboardTab();
   currentDashboardTabId = currentTab?.id ?? null;
-  currentDashboardWindowId = currentTab?.windowId ?? null;
   dashboardStartupTabChangeIgnoreUntil = Date.now() + 2000;
   window.__suppressAutoRefreshUntil = Math.max(
     window.__suppressAutoRefreshUntil || 0,

@@ -89,3 +89,7 @@ config.js → config-loader.js → icon-utils.js → session-groups.js → group
 ## Portus bookmark integration
 
 The home rail includes native Chrome bookmarks. `bookmarks-runtime.js` owns folder navigation and bookmark drag state; `app.js` starts it after dashboard readiness. Both manifests include bookmarks permission. Integration constraints and verification are recorded in `lat.md/bookmarks.md`.
+
+## All-window workspace
+
+Portus dashboards query all browser windows for open tabs and native Chrome groups. Display and tab-action queries share this scope; batch close still preserves the last tab in every window. Explicit current-window session actions remain local. See `lat.md/features.md`.
