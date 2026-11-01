@@ -5,54 +5,247 @@
  * The toolbar badge is intentionally kept empty.
  */
 
-console.log('[portus bg] Service worker loaded, registering event listeners...');
+const TAB_HARBOR_BG_DEBUG = false;
+if (TAB_HARBOR_BG_DEBUG)
+  console.log(
+    "[tab-harbor bg] Service worker loaded, registering event listeners...",
+  );
+
+// ─── Auto-close duplicate new tabs ───────────────────────────────────────────
+
+// Tabs created within this window are exempt from duplicate-blank-tab cleanup:
+// session restore creates many tabs in a burst and their navigation has not
+// committed yet (url is empty), which would otherwise look like a pile of
+// accidentally-opened blank new-tab pages and get closed.
+const NEW_TAB_GRACE_PERIOD_MS = 5000;
+const createdRecentlyAt = new Map(); // tabId -> timestamp
+const graceTimers = new Map(); // tabId -> timeout id, one-shot post-grace check
+
+// The grace period above defers dedup for freshly created tabs, so the
+// cleanup triggered by tabs.onCreated cannot yet see the full picture (a
+// pre-existing blank tab plus the fresh one yields only ONE dedupable blank).
+// Re-run the cleanup once after the grace expires; otherwise shielded
+// duplicate blank tabs stay open until some unrelated tab event happens to
+// trigger another cleanup. The timer only needs to outlive the few seconds
+// right after onCreated — well inside the service worker's post-event idle
+// lifetime — but it is unref'd so tests and worker shutdown never wait on it.
+const POST_GRACE_RECONCILE_DELAY_MS = NEW_TAB_GRACE_PERIOD_MS + 1000;
+let postGraceReconcileTimer = null;
+
+function schedulePostGraceReconcile() {
+  if (postGraceReconcileTimer != null) return;
+  postGraceReconcileTimer = setTimeout(() => {
+    postGraceReconcileTimer = null;
+    closeDuplicateNewTabs();
+  }, POST_GRACE_RECONCILE_DELAY_MS);
+  postGraceReconcileTimer.unref?.();
+}
+
+function getNewTabUrls() {
+  return new Set([
+    chrome.runtime.getURL("index.html"),
+    chrome.runtime.getURL("extension/index.html"),
+  ]);
+}
+
+// Strip the query string (the focus-redirect appends ?focus=1 to the new-tab
+// URL) and the hash so an extension new-tab page still matches its known URL.
+function normalizeNewTabUrl(rawUrl = "") {
+  try {
+    const parsed = new URL(rawUrl);
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    return String(rawUrl).split(/[?#]/)[0] || rawUrl;
+  }
+}
+
+/**
+ * scheduleGraceExpiryCheck(tabId)
+ *
+ * closeDuplicateNewTabs() only closes blank tabs whose grace period has
+ * expired. A freshly created tab is exempt for NEW_TAB_GRACE_PERIOD_MS, so if
+ * the user Ctrl+T's a new new-tab page next to an existing Portus page,
+ * the check that runs at onCreated sees the new tab still in grace and does
+ * nothing. This schedules one extra check after the grace window so the
+ * duplicate is still caught once the exemption lapses.
+ */
+function scheduleGraceExpiryCheck(tabId) {
+  if (graceTimers.has(tabId)) return;
+  const timer = setTimeout(() => {
+    graceTimers.delete(tabId);
+    createdRecentlyAt.delete(tabId);
+    closeDuplicateNewTabs();
+  }, NEW_TAB_GRACE_PERIOD_MS + 200);
+  graceTimers.set(tabId, timer);
+}
+
+function clearGraceExpiryCheck(tabId) {
+  const timer = graceTimers.get(tabId);
+  if (timer) {
+    clearTimeout(timer);
+    graceTimers.delete(tabId);
+  }
+}
+
+function isNewTabBlank(tab, newTabUrls) {
+  // A discarded (sleeping) tab is never an accidentally-opened blank new-tab
+  // page: session restore creates tabs and discards them so they start asleep,
+  // and a discarded tab may carry an empty/uncommitted url.
+  if (tab?.discarded) return false;
+
+  const knownNewTabUrls =
+    newTabUrls instanceof Set
+      ? newTabUrls
+      : new Set(Array.isArray(newTabUrls) ? newTabUrls : [newTabUrls]);
+  const normalizedKnown = new Set(
+    [...knownNewTabUrls].map((u) => normalizeNewTabUrl(u)),
+  );
+  const url = tab?.url || "";
+  const pendingUrl = tab?.pendingUrl || "";
+  const normalizedUrl = normalizeNewTabUrl(url);
+  const normalizedPendingUrl = normalizeNewTabUrl(pendingUrl);
+
+  // A tab whose URL is already an explicit new-tab page is not "in flight":
+  // it IS a new tab, so it must count for duplicate cleanup immediately. Only
+  // tabs with an empty/uncommitted URL (session-restore bursts that have not
+  // navigated yet) get the grace-period exemption. edge://newtab/ is Edge's
+  // mapping of the overridden new-tab page.
+  const isExplicitNewTab =
+    url === "chrome://newtab/" ||
+    url === "edge://newtab/" ||
+    normalizedKnown.has(normalizedUrl) ||
+    pendingUrl === "chrome://newtab/" ||
+    pendingUrl === "edge://newtab/" ||
+    normalizedKnown.has(normalizedPendingUrl);
+
+  if (!isExplicitNewTab && tab?.id != null) {
+    const createdAt = createdRecentlyAt.get(tab.id);
+    if (createdAt != null && Date.now() - createdAt < NEW_TAB_GRACE_PERIOD_MS) {
+      return false;
+    }
+    if (createdAt != null) createdRecentlyAt.delete(tab.id);
+  }
+
+  if (
+    pendingUrl &&
+    !normalizedKnown.has(normalizedPendingUrl) &&
+    pendingUrl !== "chrome://newtab/" &&
+    pendingUrl !== "edge://newtab/"
+  ) {
+    return false;
+  }
+  // Only close a tab whose blank state is positively known (a committed
+  // chrome://newtab/ or the dashboard page itself). A tab with an empty url
+  // and no pendingUrl is in an unknown state — most likely a restore-batch tab
+  // whose navigation has not been reported yet — and must never be closed on
+  // a guess, so "url is empty" alone is deliberately not a blank signal.
+  return isExplicitNewTab;
+}
+
+// Re-entrancy guard: onCreated, the post-grace timer, and onUpdated can all
+// call closeDuplicateNewTabs within a few hundred ms of each other. Running
+// two checks concurrently against the same tabs would issue duplicate
+// chrome.tabs.remove calls. While one check is in flight we count how many
+// more are owed and run them afterwards (once), so the newest tab state is
+// still checked without removing the same tab id twice.
+let duplicateCloseInFlight = false;
+let duplicateCloseQueued = 0;
+
+async function closeDuplicateNewTabs() {
+  if (duplicateCloseInFlight) {
+    duplicateCloseQueued += 1;
+    return;
+  }
+  duplicateCloseInFlight = true;
+  try {
+    const stored = await chrome.storage.local.get("themePreferences");
+    const prefs = stored.themePreferences || {};
+    if (prefs.closeDuplicateNewTabsEnabled !== true) return;
+
+    const newTabUrls = getNewTabUrls();
+    const allTabs = await chrome.tabs.query({});
+    const blankTabs = allTabs.filter((tab) => isNewTabBlank(tab, newTabUrls));
+
+    if (blankTabs.length <= 1) return;
+
+    // Duplicate-new-tab cleanup is window-local. Keeping only one blank tab
+    // for the entire browser can remove another window's final tab and close
+    // that window. Keep the active (or newest) blank tab in every window.
+    const blankTabsByWindow = new Map();
+    for (const tab of blankTabs) {
+      const windowKey = tab?.windowId ?? '__unknown_window__';
+      if (!blankTabsByWindow.has(windowKey)) blankTabsByWindow.set(windowKey, []);
+      blankTabsByWindow.get(windowKey).push(tab);
+    }
+
+    // Match the dashboard by its normalized URL (same as isNewTabBlank), so a
+    // real dashboard tab — whose URL always carries the ?focus=1 query added by
+    // focus-redirect.js — is recognized and preserved even though the raw URL
+    // is not in newTabUrls. Without this, a non-active dashboard next to a
+    // genuinely blank new-tab page could be closed in favor of the blank.
+    const normalizedKnown = new Set(
+      [...newTabUrls].map((u) => normalizeNewTabUrl(u)),
+    );
+    const isDashboardTab = (tab) =>
+      normalizedKnown.has(normalizeNewTabUrl(String(tab.url || "")));
+
+    const toClose = [];
+    for (const tabsInWindow of blankTabsByWindow.values()) {
+      if (tabsInWindow.length <= 1) continue;
+      const activeTab = tabsInWindow.find((tab) => tab.active);
+      // No active blank tab: keep the Portus page when the group contains
+      // one, so the fallback below can never close the dashboard itself in
+      // favor of a genuinely blank new-tab page.
+      const toKeep = activeTab
+        || tabsInWindow.find(isDashboardTab)
+        || tabsInWindow.reduce((a, b) => (a.id > b.id ? a : b));
+      for (const tab of tabsInWindow) {
+        if (tab.id !== toKeep.id) toClose.push(tab.id);
+      }
+    }
+
+    if (toClose.length > 0) await chrome.tabs.remove(toClose);
+  } catch (err) {
+    console.warn("[tab-harbor bg] closeDuplicateNewTabs error:", err.message);
+  } finally {
+    duplicateCloseInFlight = false;
+    if (duplicateCloseQueued > 0) {
+      duplicateCloseQueued = 0;
+      void closeDuplicateNewTabs();
+    }
+  }
+}
 
 async function updateBadge() {
   try {
-    await chrome.action.setBadgeText({ text: '' });
+    await chrome.action.setBadgeText({ text: "" });
   } catch {
-    chrome.action.setBadgeText({ text: '' });
+    chrome.action.setBadgeText({ text: "" });
   }
 }
 
 // ─── Event listeners ──────────────────────────────────────────────────────────
 
 // Notify Portus pages when tabs change so they can refresh
-let notifyDebounceTimer = null;
-function scheduleNotifyTabHarborPages() {
-  if (notifyDebounceTimer) clearTimeout(notifyDebounceTimer);
-  notifyDebounceTimer = setTimeout(notifyTabHarborPages, 300);
-}
+async function notifyTabHarborPages(eventMeta = {}) {
+  const message = {
+    action: "tabs-changed",
+    source: eventMeta.source || "tabs.changed",
+    triggerTabId: eventMeta.triggerTabId ?? null,
+  };
+  if (eventMeta.replacedTabId != null) {
+    message.replacedTabId = eventMeta.replacedTabId;
+  }
 
-async function notifyTabHarborPages() {
   try {
-    const extensionId = chrome.runtime.id;
-    const allTabs = await chrome.tabs.query({});
-
-    const dashboardTabs = allTabs.filter(tab => {
-      if (!tab.url) return false;
-      // Portus can appear as either:
-      // 1. chrome-extension://EXTENSION_ID/index.html (direct access)
-      // 2. chrome://newtab/ with title "Portus" (new tab override)
-      return (
-        tab.url.startsWith(`chrome-extension://${extensionId}/index.html`) ||
-        (tab.url === 'chrome://newtab/' && tab.title === 'Portus')
-      );
-    });
-
-    for (const tab of dashboardTabs) {
-      try {
-        await chrome.tabs.sendMessage(tab.id, { action: 'tabs-changed' });
-      } catch (err) {
-        // Expected when the tab's page is still loading and hasn't registered
-        // its message listener yet — not an error worth logging.
-        if (!err.message.includes('Could not establish connection')) {
-          console.warn(`[portus bg] Failed to notify tab ${tab.id}:`, err.message);
-        }
-      }
-    }
+    await chrome.runtime.sendMessage(message);
   } catch (err) {
-    console.warn('[portus bg] Error in notifyTabHarborPages:', err);
+    if (err?.message && !err.message.includes("Receiving end does not exist")) {
+      console.warn(
+        "[tab-harbor bg] Error notifying Portus pages:",
+        err.message,
+      );
+    }
   }
 }
 
@@ -67,24 +260,86 @@ chrome.runtime.onStartup.addListener(() => {
 });
 
 // Update badge and notify Portus pages whenever a tab is opened
-chrome.tabs.onCreated.addListener(() => {
+chrome.tabs.onCreated.addListener((tab) => {
+  if (tab?.id != null) {
+    createdRecentlyAt.set(tab.id, Date.now());
+    scheduleGraceExpiryCheck(tab.id);
+  }
   updateBadge();
-  scheduleNotifyTabHarborPages();
+  notifyTabHarborPages({ source: "tabs.onCreated", triggerTabId: tab?.id });
+  closeDuplicateNewTabs();
+  schedulePostGraceReconcile();
 });
 
 // Update badge and notify Portus pages whenever a tab is closed
-chrome.tabs.onRemoved.addListener(() => {
+chrome.tabs.onRemoved.addListener((tabId) => {
+  createdRecentlyAt.delete(tabId);
+  clearGraceExpiryCheck(tabId);
   updateBadge();
-  scheduleNotifyTabHarborPages();
+  notifyTabHarborPages({ source: "tabs.onRemoved", triggerTabId: tabId });
 });
 
 // Update badge and notify Portus pages when a tab's URL changes (e.g. navigating to/from chrome://)
-chrome.tabs.onUpdated.addListener(() => {
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   updateBadge();
-  scheduleNotifyTabHarborPages();
+  notifyTabHarborPages({ source: "tabs.onUpdated", triggerTabId: tabId });
+
+  // A tab that just committed a new-tab URL (chrome://newtab/ or the Tab
+  // Harbor extension page) may have been created inside the grace window and
+  // therefore skipped by the onCreated cleanup. Re-check now that its URL is
+  // known so a Ctrl+T'd duplicate next to an existing Portus page is
+  // still closed. The grace check itself already ran or is scheduled by
+  // onCreated; this is a second, URL-driven opportunity.
+  if (changeInfo?.url) {
+    const urls = getNewTabUrls();
+    const isNewTab =
+      changeInfo.url === "chrome://newtab/" ||
+      changeInfo.url === "edge://newtab/" ||
+      urls.has(changeInfo.url);
+    if (isNewTab) closeDuplicateNewTabs();
+  }
+});
+
+// A tab can be replaced with a different tab id (OAuth/redirect flows,
+// prerendering). Without this, pages keep chips for tab ids that no longer
+// exist, and actions on those stale chips corrupt grouping state.
+chrome.tabs.onReplaced.addListener((addedTabId, removedTabId) => {
+  createdRecentlyAt.delete(removedTabId);
+  clearGraceExpiryCheck(removedTabId);
+  updateBadge();
+  notifyTabHarborPages({
+    source: "tabs.onReplaced",
+    triggerTabId: addedTabId,
+    replacedTabId: removedTabId,
+  });
 });
 
 // ─── Initial run ─────────────────────────────────────────────────────────────
 
 // Run once immediately when the service worker first loads
 updateBadge();
+
+// ─── Test exports ────────────────────────────────────────────────────────────
+
+globalThis.TabHarborBackground = {
+  getNewTabUrls,
+  isNewTabBlank,
+  closeDuplicateNewTabs,
+  // Test seam: settle the armed post-grace reconciliation right now AND
+  // advance past the grace window, so tests observe the eventual cleanup
+  // without real timers. Clearing the creation registry mirrors reality:
+  // once the grace expires, isNewTabBlank stops shielding those tabs.
+  async runPostGraceReconcileForTest() {
+    if (postGraceReconcileTimer != null) {
+      clearTimeout(postGraceReconcileTimer);
+      postGraceReconcileTimer = null;
+    }
+    createdRecentlyAt.clear();
+    await closeDuplicateNewTabs();
+  },
+  // Test-only: reset the re-entrancy guard between test cases.
+  _resetDuplicateCloseGuard: () => {
+    duplicateCloseInFlight = false;
+    duplicateCloseQueued = 0;
+  },
+};

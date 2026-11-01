@@ -8,6 +8,8 @@ const {
   assignTabToSessionGroup,
   clearTabSessionGroup,
   pruneSessionGroups,
+  renameSessionGroup,
+  transferSessionGroupAssignment,
 } = require('./session-groups.js');
 
 test('addSessionGroup creates a named group and keeps names unique', () => {
@@ -48,4 +50,38 @@ test('pruneSessionGroups removes closed tabs and empty groups', () => {
 
   assert.deepEqual(pruned.assignments, { '101': 'g1' });
   assert.deepEqual(pruned.groups.map(group => group.id), ['g1']);
+});
+
+test('transferSessionGroupAssignment preserves manual membership when Chrome replaces a tab id', () => {
+  const initialState = {
+    groups: [{ id: 'g1', name: 'Work', createdAt: '2026-04-16T00:00:00.000Z' }],
+    assignments: { '101': 'g1' },
+  };
+
+  const transferred = transferSessionGroupAssignment(initialState, 101, 202);
+  assert.deepEqual(transferred.assignments, { '202': 'g1' });
+  assert.deepEqual(transferred.groups, initialState.groups);
+  assert.deepEqual(initialState.assignments, { '101': 'g1' }, 'the prior state remains immutable');
+  assert.deepEqual(
+    transferSessionGroupAssignment(transferred, 999, 202),
+    transferred,
+    'an unrelated replacement cannot rewrite an existing assignment'
+  );
+});
+
+test('renameSessionGroup updates the target name and preserves uniqueness', () => {
+  const initialState = {
+    groups: [
+      { id: 'g1', name: 'Work', createdAt: '2026-04-16T00:00:00.000Z' },
+      { id: 'g2', name: 'Research', createdAt: '2026-04-16T00:01:00.000Z' },
+    ],
+    assignments: {
+      '101': 'g1',
+    },
+  };
+
+  const renamed = renameSessionGroup(initialState, 'g1', 'Reading desk');
+  assert.equal(renamed.groups[0].name, 'Reading desk');
+  assert.equal(renamed.assignments['101'], 'g1');
+  assert.throws(() => renameSessionGroup(renamed, 'g1', 'Research'), /already exists/i);
 });

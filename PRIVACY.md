@@ -1,6 +1,6 @@
 # Privacy Policy for Tab Harbor
 
-Last updated: 2026-04-18
+Last updated: 2026-05-27
 
 Tab Harbor is a Chrome extension that turns the browser new tab page into a calmer workspace for open tabs, quick links, saved reads, and lightweight todos.
 
@@ -72,10 +72,29 @@ Used to store user-created and user-selected local state, including:
 Used when the user types into the built-in search field and explicitly submits a search.  
 This permission allows Tab Harbor to send the query through the browser’s default search engine in the current tab.
 
+### `history`
+
+Used only while the user is typing in the built-in search field and the inline suggestion panel is shown.  
+Tab Harbor reads a bounded list of recently visited pages to suggest them as destinations, alongside open tabs, quick links, and saved sessions. History is read on demand while the user types, filtered in the page, and never stored, exported, or sent anywhere by Tab Harbor. Suggestion-row icons are resolved locally (extension favicon cache, page origin, or a blank icon) — history entries never trigger a request to a third-party favicon service.
+
 ### `clipboardRead`
 
 Used only when the user explicitly pastes an image or SVG into the shortcut editor to create a custom shortcut icon.  
 Tab Harbor does not continuously monitor or silently read clipboard contents in the background.
+
+### `tabGroups`
+
+Used when the user enables Chrome tab group sync features so the extension can:
+
+- read existing native Chrome tab groups
+- create or update Chrome tab groups to match the workspace
+- keep group titles, colors, and collapsed state aligned with the user’s chosen organization
+- respond when Chrome tab groups change outside the Tab Harbor page
+
+### `favicon`
+
+Used to let Tab Harbor request and display site icons for tabs, saved sessions, and quick shortcuts more reliably.  
+This may include Chrome’s packaged favicon endpoint, a site’s own `favicon.ico`, or a fallback favicon service when no better icon is available.
 
 ## 5. Data storage and retention
 
@@ -99,6 +118,7 @@ Tab Harbor does not transfer user data to third parties except where necessary t
 
 - opening a page URL chosen by the user
 - sending a search query through the browser’s default search engine after the user explicitly submits it
+- requesting favicon resources needed to display site icons in the workspace
 
 Aside from those normal browser actions initiated by the user, Tab Harbor does not send workspace data to a developer-controlled remote service.
 
@@ -113,6 +133,8 @@ All JavaScript and extension assets required to run the extension are packaged w
 Tab Harbor relies on Chrome’s extension platform APIs to function.
 
 When a user opens a webpage or submits a search through the extension, the browser may connect to the destination website or the configured default search engine as part of the user’s explicit action.
+
+To render site icons, Tab Harbor may also request favicon resources from a page’s origin or a fallback favicon service based on the page URLs already visible in the workspace.
 
 ## 9. User choices and controls
 

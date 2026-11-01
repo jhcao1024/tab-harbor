@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "Portus",
+  "version": "1.1.2",
+  "description": "A new tab dashboard for organizing open tabs, quick links, todos, bookmarks, and saved tab sessions in one calm workspace.",
+  "permissions": [
+    "tabs",
+    "storage",
+    "search",
+    "history",
+    "clipboardRead",
+    "tabGroups",
+    "favicon",
+    "bookmarks"
+  ],
+  "chrome_url_overrides": { "newtab": "extension/index.html" },
+  "background": {
+    "service_worker": "extension/background.js"
+  },
+  "action": {
+    "default_title": "Portus",
+    "default_popup": "extension/popup/popup.html",
+    "default_icon": {
+      "16": "extension/icons/icon16.png",
+      "48": "extension/icons/icon48.png"
+    }
+  },
+  "icons": {
+    "16": "extension/icons/icon16.png",
+    "48": "extension/icons/icon48.png",
+    "128": "extension/icons/icon128.png"
+  },
+  "options_ui": {
+    "page": "extension/index.html?options",
+    "open_in_tab": true
+  }
+}

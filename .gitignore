@@ -1,5 +1,12 @@
 extension/config.local.js
 .DS_Store
 extension.zip
+dist/*.zip
 .idea
 .vscode
+CLAUDE.local.md
+CLAUDE.md
+.codegraph/
+.pi
+
+lat.md/.cache/

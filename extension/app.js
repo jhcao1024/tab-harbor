@@ -26,6 +26,13 @@ async function initializeApp() {
   }
 
   await appMountDashboardRuntime();
+  globalThis.TabHarborBookmarksRuntime?.render().catch(error => {
+    console.warn('Could not load bookmarks', error);
+  });
+
+  // External typography must never delay local shortcuts or the empty state.
+  const optionalFonts = document.getElementById('optionalFonts');
+  if (optionalFonts) optionalFonts.media = 'all';
 }
 
 initializeApp();

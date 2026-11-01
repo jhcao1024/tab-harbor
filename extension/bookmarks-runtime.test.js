@@ -122,3 +122,20 @@ test('TabHarborBookmarksRuntime.render() falls back to root if Bookmarks Bar is 
   assert.match(mockContainer.innerHTML, /Custom Folder/);
   assert.match(mockContainer.innerHTML, /Mobile Bookmarks/);
 });
+
+// @lat: [[bookmarks#Keyboard navigation]]
+test('bookmark folders and breadcrumbs expose named native navigation buttons', async () => {
+  chrome.bookmarks.getSubTree = (id, cb) => cb([{ id, children: [
+    { id: '10', parentId: id, title: 'Reading' },
+    { id: '11', parentId: id, title: 'Example', url: 'https://example.com/' },
+  ] }]);
+  chrome.bookmarks.getTree = cb => cb([{ id: '0', children: [{ id: '1', title: 'Bookmarks Bar' }] }]);
+  delete require.cache[require.resolve('./bookmarks-runtime.js')];
+  require('./bookmarks-runtime.js');
+  await globalThis.TabHarborBookmarksRuntime.render();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.match(mockContainer.innerHTML, /<button[^>]*data-action="bm-enter-folder"[^>]*>Reading<\/button>/);
+  assert.match(mockContainer.innerHTML, /<button[^>]*data-action="bm-jump"/);
+  assert.match(mockContainer.innerHTML, /data-action="bm-delete"[^>]*aria-label=/);
+  assert.match(mockContainer.innerHTML, /data-action="bm-open"[^>]*aria-label=/);
+});

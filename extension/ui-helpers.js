@@ -131,11 +131,13 @@ function animateCardOut(card) {
 function showToast(message, { action } = {}) {
   const toast = document.getElementById('toast');
   const toastText = document.getElementById('toastText');
+  if (!toast || !toastText) return;
   const toastAction = document.getElementById('toastAction');
+  if (!toast || !toastText) return;
 
   toastText.textContent = message;
 
-  if (action) {
+  if (action && toastAction) {
     toastAction.textContent = action.label;
     toastAction.hidden = false;
     toastAction.onclick = async () => {
@@ -147,7 +149,7 @@ function showToast(message, { action } = {}) {
         toast.classList.remove('visible');
       }
     };
-  } else {
+  } else if (toastAction) {
     toastAction.hidden = true;
     toastAction.onclick = null;
   }
@@ -158,10 +160,22 @@ function showToast(message, { action } = {}) {
 
 function setImageFallbackAttributes(imgEl, fallbackUrl = '') {
   if (!imgEl) return;
-  if (fallbackUrl) {
-    imgEl.dataset.fallbackSrc = String(fallbackUrl);
+  const fallbackSources = Array.isArray(fallbackUrl)
+    ? fallbackUrl.map(url => String(url || '').trim()).filter(Boolean)
+    : String(fallbackUrl || '').trim()
+      ? [String(fallbackUrl || '').trim()]
+      : [];
+
+  if (fallbackSources.length) {
+    imgEl.dataset.fallbackSrc = fallbackSources[0];
+    if (fallbackSources.length > 1) {
+      imgEl.dataset.fallbackSrcset = JSON.stringify(fallbackSources.slice(1));
+    } else {
+      delete imgEl.dataset.fallbackSrcset;
+    }
   } else {
     delete imgEl.dataset.fallbackSrc;
+    delete imgEl.dataset.fallbackSrcset;
   }
   delete imgEl.dataset.fallbackApplied;
 }
@@ -175,6 +189,7 @@ function revealImageFallback(imgEl) {
     sibling.classList.contains('group-nav-fallback') ||
     sibling.classList.contains('chip-favicon-fallback') ||
     sibling.classList.contains('inline-favicon-fallback') ||
+    sibling.classList.contains('popup-tab-favicon-fallback') ||
     sibling.classList.contains('quick-shortcut-fallback') ||
     sibling.classList.contains('tab-picker-favicon-fallback')
   ) {
@@ -187,11 +202,35 @@ function revealImageFallback(imgEl) {
 
 function handleImageFallbackError(imgEl) {
   if (!imgEl) return;
-  const fallbackUrl = String(imgEl.dataset.fallbackSrc || '').trim();
 
-  if (fallbackUrl && imgEl.dataset.fallbackApplied !== 'true') {
-    imgEl.dataset.fallbackApplied = 'true';
-    imgEl.src = fallbackUrl;
+  const fallbackQueue = [];
+  const primaryFallback = String(imgEl.dataset.fallbackSrc || '').trim();
+  if (primaryFallback) fallbackQueue.push(primaryFallback);
+
+  const serializedQueue = String(imgEl.dataset.fallbackSrcset || '').trim();
+  if (serializedQueue) {
+    try {
+      const parsed = JSON.parse(serializedQueue);
+      if (Array.isArray(parsed)) {
+        fallbackQueue.push(...parsed.map(url => String(url || '').trim()).filter(Boolean));
+      }
+    } catch {
+      // Ignore malformed fallback queues and continue to inline fallback.
+    }
+  }
+
+  const currentSrc = String(imgEl.currentSrc || imgEl.src || '').trim();
+  const nextFallback = fallbackQueue.find(url => url && url !== currentSrc && url !== String(imgEl.dataset.fallbackApplied || '').trim());
+  if (nextFallback) {
+    const remaining = fallbackQueue.filter(url => url && url !== nextFallback);
+    imgEl.dataset.fallbackApplied = nextFallback;
+    imgEl.dataset.fallbackSrc = nextFallback;
+    if (remaining.length) {
+      imgEl.dataset.fallbackSrcset = JSON.stringify(remaining);
+    } else {
+      delete imgEl.dataset.fallbackSrcset;
+    }
+    imgEl.src = nextFallback;
     return;
   }
 
@@ -202,7 +241,7 @@ if (!globalThis.__tabHarborImageFallbackBound) {
   document.addEventListener('error', event => {
     const target = event.target;
     if (!(target instanceof HTMLImageElement)) return;
-    if (!('fallbackSrc' in target.dataset)) return;
+    if (!('fallbackSrc' in target.dataset) && !('fallbackSrcset' in target.dataset)) return;
     handleImageFallbackError(target);
   }, true);
   globalThis.__tabHarborImageFallbackBound = true;
@@ -354,7 +393,7 @@ function friendlyDomain(hostname) {
 
   const clean = hostname
     .replace(/^www\./, '')
-    .replace(/\.(com|org|net|io|co|ai|dev|app|so|me|xyz|info|us|uk|co\.uk|co\.jp)$/, '');
+    .replace(/\.(co\.uk|co\.jp|com|org|net|io|co|ai|dev|app|so|me|xyz|info|us|uk)$/, '');
 
   return clean.split('.').map(part => capitalize(part)).join(' ');
 }
@@ -446,11 +485,22 @@ function smartTitle(title, url) {
   return title || url;
 }
 
+// Test exposure
+globalThis.friendlyDomain = friendlyDomain;
+globalThis.stripTitleNoise = stripTitleNoise;
+globalThis.cleanTitle = cleanTitle;
+globalThis.smartTitle = smartTitle;
+globalThis.capitalize = capitalize;
+
 const ICONS = {
   tabs: `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 8.25V18a2.25 2.25 0 0 0 2.25 2.25h13.5A2.25 2.25 0 0 0 21 18V8.25m-18 0V6a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 6v2.25m-18 0h18" /></svg>`,
   close: `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>`,
-  archive: `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5m6 4.125l2.25 2.25m0 0l2.25 2.25M12 13.875l2.25-2.25M12 13.875l-2.25 2.25M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" /></svg>`,
+  archive: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" fill="currentColor" aria-hidden="true"><path d="M845.312 0.512H32.512v1022.976h958.976v-876.8L845.312 0.512z m-172.864 62.976v256H351.488v-256h320.96zM287.488 960.512V605.76l29.184-29.248h390.656l29.184 29.248v354.752H287.488z m640 0h-126.976V585.152L727.424 512H296.576L223.488 585.152v375.36H96.512V63.488h190.976v320.448h449.024V63.488h79.68l111.296 112.32v784.704z m-384-832h65.984v128H543.488v-128z" /></svg>`,
   focus: `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 19.5 15-15m0 0H8.25m11.25 0v11.25" /></svg>`,
   move: `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 6.75h12m-12 5.25h12m-12 5.25h12M4.5 6.75h.008v.008H4.5V6.75Zm0 5.25h.008v.008H4.5V12Zm0 5.25h.008v.008H4.5v-.008Z" /></svg>`,
   pin: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" fill="none" aria-hidden="true"><path d="M648.728381 130.779429a73.142857 73.142857 0 0 1 22.674286 15.433142l191.561143 191.756191a73.142857 73.142857 0 0 1-22.137905 118.564571l-67.876572 30.061715-127.341714 127.488-10.093714 140.239238a73.142857 73.142857 0 0 1-124.684191 46.445714l-123.66019-123.782095-210.724572 211.699809-51.833904-51.614476 210.846476-211.821714-127.926857-128.024381a73.142857 73.142857 0 0 1 46.299428-124.635429l144.237715-10.776381 125.074285-125.220571 29.379048-67.779048a73.142857 73.142857 0 0 1 96.207238-38.034285z m-29.086476 67.120761l-34.913524 80.530286-154.087619 154.331429-171.398095 12.751238 303.323428 303.542857 12.044191-167.399619 156.233143-156.428191 80.384-35.59619-191.585524-191.73181z" fill="currentColor" /></svg>`,
+  moon: `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M20.354 15.354A9 9 0 0 1 8.646 3.646 9.003 9.003 0 0 0 12 21a9.003 9.003 0 0 0 8.354-5.646z" /></svg>`,
+  mergeGroup: `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6.429 9.75 2.25 12l4.179 2.25m0-4.5 5.571 3 5.571-3m-11.142 0L2.25 7.5 12 2.25l9.75 5.25-4.179 2.25m0 0L21.75 12l-4.179 2.25m0 0 4.179 2.25L12 21.75 2.25 16.5l4.179-2.25m11.142 0-5.571 3-5.571-3" /></svg>`,
+  deselect: `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.75 9.75l4.5 4.5m0-4.5-4.5 4.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>`,
+  closeDuplicates: `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 8.25V6a2.25 2.25 0 0 0-2.25-2.25H6A2.25 2.25 0 0 0 3.75 6v8.25A2.25 2.25 0 0 0 6 16.5h2.25m8.25-8.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-7.5A2.25 2.25 0 0 1 8.25 18v-1.5m8.25-8.25h-6a2.25 2.25 0 0 0-2.25 2.25v6" /></svg>`,
 };

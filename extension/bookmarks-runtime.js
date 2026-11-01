@@ -33,6 +33,7 @@
   let draggedBookmarkEl = null;
   let bookmarkDragState = null;
   let bookmarkPlaceholderEl = null;
+  let bookmarkGhostEl = null;
   let bookmarkDropTargetState = null;
   let suppressBookmarkClickUntil = 0;
 
@@ -206,6 +207,7 @@
     const placeholderHeight = bookmarkDragState?.height || draggedBookmarkEl.getBoundingClientRect().height;
     bookmarkPlaceholderEl.style.height = `${placeholderHeight}px`;
     bookmarkPlaceholderEl.setAttribute('aria-hidden', 'true');
+    bookmarkPlaceholderEl.inert = true;
     bookmarkPlaceholderEl.innerHTML = draggedBookmarkEl.innerHTML;
     draggedBookmarkEl.insertAdjacentElement('afterend', bookmarkPlaceholderEl);
     return bookmarkPlaceholderEl;
@@ -216,6 +218,8 @@
     bookmarkDragState = null;
     bookmarkPlaceholderEl?.remove();
     bookmarkPlaceholderEl = null;
+    bookmarkGhostEl?.remove();
+    bookmarkGhostEl = null;
     clearBookmarkDropTargetState();
     document.body.classList.remove('page-chip-list-dragging');
 
@@ -230,9 +234,9 @@
   }
 
   function updateDraggedBookmarkPosition(clientX, clientY) {
-    if (!draggedBookmarkEl || !bookmarkDragState) return;
-    draggedBookmarkEl.style.setProperty('--drag-left', `${clientX - bookmarkDragState.offsetX}px`);
-    draggedBookmarkEl.style.setProperty('--drag-top', `${clientY - bookmarkDragState.offsetY}px`);
+    if (!bookmarkGhostEl || !bookmarkDragState) return;
+    bookmarkGhostEl.style.setProperty('--drag-left', `${clientX - bookmarkDragState.offsetX}px`);
+    bookmarkGhostEl.style.setProperty('--drag-top', `${clientY - bookmarkDragState.offsetY}px`);
   }
 
   function animateBookmarkItems(listEl, previousRects) {
@@ -313,20 +317,19 @@
 
     return `
       <div class="page-chip clickable" 
-           data-action="bm-enter-folder" 
            data-bm-sort-id="${escapeHtmlAttr(node.id)}"
            ${isFolder ? `data-bm-drop-folder-id="${escapeHtmlAttr(node.id)}"` : ''}
            data-id="${node.id}" 
            data-title="${escapeHtmlAttr(title)}"
            ${node.url ? `data-url="${escapeHtmlAttr(node.url)}"` : ''}>
-        <button class="drawer-reorder-handle chip-reorder-handle" type="button" data-bm-drag-handle="bookmark" aria-label="${escapeHtmlAttr(t('dragReorderTab') || 'Drag to reorder bookmark')}">
+        <button class="drawer-reorder-handle chip-reorder-handle" type="button" data-bm-drag-handle="bookmark" aria-label="${escapeHtmlAttr(t('bookmarkReorderLabel'))}">
           ${ICONS.drag}
         </button>
         ${favicon && !isFolder ? `<img class="chip-favicon" src="${favicon}" alt="" style="pointer-events:none">` : fallback}
-        <span class="chip-text" style="pointer-events:none">${escapeHtml(title)}</span>
+        <button class="chip-text bookmark-title" type="button" data-action="bm-enter-folder" data-id="${escapeHtmlAttr(node.id)}" data-title="${escapeHtmlAttr(title)}" ${node.url ? `data-url="${escapeHtmlAttr(node.url)}"` : ''}>${escapeHtml(title)}</button>
         <div class="chip-actions">
-           ${!isFolder ? `<button class="chip-action" data-action="bm-open" data-url="${escapeHtmlAttr(node.url)}">${ICONS.open}</button>` : ''}
-           <button class="chip-action chip-delete" data-action="bm-delete" data-id="${node.id}" data-type="${isFolder ? 'folder' : 'bookmark'}">${ICONS.trash}</button>
+           ${!isFolder ? `<button class="chip-action" data-action="bm-open" aria-label="${escapeHtmlAttr(title)} — ${escapeHtmlAttr(t('bookmarkOpenLabel'))}" data-url="${escapeHtmlAttr(node.url)}">${ICONS.open}</button>` : ''}
+           <button class="chip-action chip-delete" data-action="bm-delete" aria-label="${escapeHtmlAttr(title)} — ${escapeHtmlAttr(t('bookmarkDeleteLabel'))}" data-id="${node.id}" data-type="${isFolder ? 'folder' : 'bookmark'}">${ICONS.trash}</button>
         </div>
       </div>`;
   }
@@ -345,10 +348,10 @@
       const dropAttr = !isLast && step.id !== 'root'
         ? ` data-bm-drop-breadcrumb-id="${escapeHtmlAttr(step.id)}"`
         : '';
-      return `<span class="breadcrumb-pill ${isLast ? 'is-current' : ''}" data-action="bm-jump" data-index="${i}"${dropAttr}>${escapeHtml(step.title)}</span>` + (isLast ? '' : '<span class="breadcrumb-separator">/</span>');
+      return `<button type="button" class="breadcrumb-pill ${isLast ? 'is-current' : ''}" data-action="bm-jump" data-index="${i}"${dropAttr}>${escapeHtml(step.title)}</button>` + (isLast ? '' : '<span class="breadcrumb-separator">/</span>');
     }).join('');
 
-    const backBtn = navigationStack.length > 1 ? `<button class="nav-back-btn" data-action="bm-back">${ICONS.back}</button>` : '';
+    const backBtn = navigationStack.length > 1 ? `<button class="nav-back-btn" data-action="bm-back" aria-label="${escapeHtmlAttr(t('bookmarkBackLabel'))}">${ICONS.back}</button>` : '';
 
     container.innerHTML = `
       <div class="navigation-header">
@@ -438,6 +441,7 @@
       offsetX: e.clientX - rect.left,
       offsetY: e.clientY - rect.top,
       height: rect.height,
+      width: rect.width,
       moved: false,
     };
   });
@@ -451,9 +455,15 @@
     if (!bookmarkDragState.moved) {
       bookmarkDragState.moved = true;
       document.body.classList.add('page-chip-list-dragging');
-      draggedBookmarkEl?.classList.add('is-dragging');
-      draggedBookmarkEl?.style.setProperty('--drag-width', `${draggedBookmarkEl.getBoundingClientRect().width}px`);
       ensureBookmarkPlaceholder();
+      bookmarkGhostEl = draggedBookmarkEl.cloneNode(true);
+      bookmarkGhostEl.classList.add('bookmark-drag-ghost');
+      bookmarkGhostEl.removeAttribute('data-bm-sort-id');
+      bookmarkGhostEl.setAttribute('aria-hidden', 'true');
+      bookmarkGhostEl.inert = true;
+      bookmarkGhostEl.style.setProperty('--drag-width', `${bookmarkDragState.width}px`);
+      document.body.appendChild(bookmarkGhostEl);
+      draggedBookmarkEl.classList.add('is-dragging');
     }
 
     updateDraggedBookmarkPosition(e.clientX, e.clientY);
@@ -516,6 +526,11 @@
     clearBookmarkDragState();
   });
 
+  document.addEventListener('pointercancel', clearBookmarkDragState);
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && bookmarkDragState) clearBookmarkDragState();
+  });
+
   globalScope.TabHarborBookmarksRuntime = {
     render: async () => {
       // Find the Bookmarks Bar automatically
@@ -538,14 +553,14 @@
           { id: 'root', title: t('libraryLabel') },
           { id: bookmarksBar.id, title: bookmarksBar.title }
         ];
-        renderView(bookmarksBar.id);
+        await renderView(bookmarksBar.id);
       } else {
         navigationStack = [{ id: 'root', title: t('libraryLabel') }];
-        renderView('root');
+        await renderView('root');
       }
     }
   };
 
-  setTimeout(() => globalScope.TabHarborBookmarksRuntime.render(), 150);
+
 
 })(typeof globalThis !== 'undefined' ? globalThis : window);

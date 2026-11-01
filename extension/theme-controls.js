@@ -20,6 +20,7 @@ const {
 } = globalThis.TabOutListOrder || {};
 
 let themeMenuOpen = false;
+let themeMenuActiveTab = 'appearance';
 let shortcutEditorState = {
   open: false,
   mode: 'create',
@@ -59,189 +60,51 @@ const FOCUSABLE_SELECTOR = [
 
 const THEME_MODE_ORDER = ['system', 'light', 'dark'];
 const THEME_PALETTE_ORDER = ['paper', 'sage', 'mist', 'blush'];
+const SAVED_SESSION_RESTORE_MODE_ORDER = ['current-window', 'new-window'];
+const SAVED_SESSION_NAV_DISPLAY_MODE_ORDER = ['icon', 'name'];
+const QUICK_SHORTCUT_OPEN_MODE_ORDER = ['new-tab', 'current-tab'];
+const QUICK_SHORTCUT_COLS_ORDER = ['auto', '4', '5'];
+const SEARCH_ENGINE_PRESETS = {
+  google: { name: 'Google', url: 'https://www.google.com/search?q=' },
+  bing: { name: 'Bing', url: 'https://www.bing.com/search?q=' },
+  baidu: { name: 'Baidu', url: 'https://www.baidu.com/s?wd=' },
+  sogou: { name: 'Sogou', url: 'https://www.sogou.com/web?query=' },
+  duckduckgo: { name: 'DuckDuckGo', url: 'https://duckduckgo.com/?q=' },
+  brave: { name: 'Brave Search', url: 'https://search.brave.com/search?q=' },
+  yandex: { name: 'Yandex', url: 'https://yandex.com/search/?text=' },
+};
+const SEARCH_ENGINE_ORDER = ['default', ...Object.keys(SEARCH_ENGINE_PRESETS), 'custom'];
 const VALID_THEME_MODES = new Set(THEME_MODE_ORDER);
 const VALID_THEME_PALETTES = new Set(THEME_PALETTE_ORDER);
+const VALID_SAVED_SESSION_RESTORE_MODES = new Set(SAVED_SESSION_RESTORE_MODE_ORDER);
+const VALID_SAVED_SESSION_NAV_DISPLAY_MODES = new Set(SAVED_SESSION_NAV_DISPLAY_MODE_ORDER);
+const VALID_QUICK_SHORTCUT_OPEN_MODES = new Set(QUICK_SHORTCUT_OPEN_MODE_ORDER);
+const VALID_QUICK_SHORTCUT_COLS = new Set(QUICK_SHORTCUT_COLS_ORDER);
+const VALID_SEARCH_ENGINES = new Set(SEARCH_ENGINE_ORDER);
 const THEME_MODE_LABEL_KEYS = {
   system: 'themeModeSystem',
   light: 'themeModeLight',
   dark: 'themeModeDark',
 };
-const LEGACY_THEME_MIGRATION = {
-  paper: { mode: 'light', paletteId: 'paper' },
-  sage: { mode: 'light', paletteId: 'sage' },
-  mist: { mode: 'light', paletteId: 'mist' },
-  blush: { mode: 'light', paletteId: 'blush' },
-  midnight: { mode: 'dark', paletteId: 'mist' },
-};
-const THEME_FAMILIES = {
-  paper: {
-    name: 'Paper',
-    meta: 'Warm neutral',
-    light: {
-      '--ink': '#1a1613',
-      '--paper': '#f8f5f0',
-      '--warm-gray': '#e8e2da',
-      '--muted': '#9a918a',
-      '--accent-amber': '#c8713a',
-      '--accent-sage': '#5a7a62',
-      '--accent-slate': '#5a6b7a',
-      '--accent-rose': '#b35a5a',
-      '--workspace-accent': '#8a653f',
-      '--workspace-accent-soft': '#f2e7db',
-      '--workspace-accent-border': '#d4b396',
-      '--workspace-accent-contrast': '#fffaf5',
-      '--status-active': '#3d7a4a',
-      '--status-cooling': '#b8892e',
-      '--status-abandoned': '#b35a5a',
-      '--card-bg': '#fffdf9',
-    },
-    dark: {
-      '--ink': '#e8e2da',
-      '--paper': '#1a1613',
-      '--warm-gray': '#2d2722',
-      '--muted': '#7a726a',
-      '--accent-amber': '#d4854a',
-      '--accent-sage': '#6a8a72',
-      '--accent-slate': '#6a7b8a',
-      '--accent-rose': '#b37a7a',
-      '--workspace-accent': '#a0754f',
-      '--workspace-accent-soft': '#2d2722',
-      '--workspace-accent-border': '#5a4a3a',
-      '--workspace-accent-contrast': '#f8f5f0',
-      '--status-active': '#5a9a6a',
-      '--status-cooling': '#c89a3a',
-      '--status-abandoned': '#c36a6a',
-      '--card-bg': '#231f1a',
-    },
-  },
-  sage: {
-    name: 'Sage',
-    meta: 'Soft green',
-    light: {
-      '--ink': '#172018',
-      '--paper': '#eef2eb',
-      '--warm-gray': '#dbe3d7',
-      '--muted': '#7f8c81',
-      '--accent-amber': '#8b7146',
-      '--accent-sage': '#4d6f57',
-      '--accent-slate': '#5e7072',
-      '--accent-rose': '#9a6860',
-      '--workspace-accent': '#4f7657',
-      '--workspace-accent-soft': '#deebe1',
-      '--workspace-accent-border': '#9ebda6',
-      '--workspace-accent-contrast': '#f6fbf7',
-      '--status-active': '#446953',
-      '--status-cooling': '#907548',
-      '--status-abandoned': '#996760',
-      '--card-bg': '#fafcf8',
-    },
-    dark: {
-      '--ink': '#d8e3d7',
-      '--paper': '#172018',
-      '--warm-gray': '#252d25',
-      '--muted': '#6a7a6a',
-      '--accent-amber': '#9a8a5a',
-      '--accent-sage': '#6a9a7a',
-      '--accent-slate': '#6a7a8a',
-      '--accent-rose': '#9a7a7a',
-      '--workspace-accent': '#5a8a6a',
-      '--workspace-accent-soft': '#252d25',
-      '--workspace-accent-border': '#3a4a3a',
-      '--workspace-accent-contrast': '#eef2eb',
-      '--status-active': '#5a9a7a',
-      '--status-cooling': '#b89a4a',
-      '--status-abandoned': '#c36a6a',
-      '--card-bg': '#1e261e',
-    },
-  },
-  mist: {
-    name: 'Mist',
-    meta: 'Cool neutral',
-    light: {
-      '--ink': '#161c21',
-      '--paper': '#eef2f5',
-      '--warm-gray': '#d8dee5',
-      '--muted': '#7d8791',
-      '--accent-amber': '#927255',
-      '--accent-sage': '#5d7569',
-      '--accent-slate': '#4f687a',
-      '--accent-rose': '#9b6b71',
-      '--workspace-accent': '#4f6d88',
-      '--workspace-accent-soft': '#dde7f0',
-      '--workspace-accent-border': '#9fb2c5',
-      '--workspace-accent-contrast': '#f7fafc',
-      '--status-active': '#4e6c61',
-      '--status-cooling': '#94724a',
-      '--status-abandoned': '#93636c',
-      '--card-bg': '#fafcfd',
-    },
-    dark: {
-      '--ink': '#d8dee5',
-      '--paper': '#161c21',
-      '--warm-gray': '#252d35',
-      '--muted': '#5d6771',
-      '--accent-amber': '#a08a6a',
-      '--accent-sage': '#6a8a7a',
-      '--accent-slate': '#6a8a9a',
-      '--accent-rose': '#9a7a7a',
-      '--workspace-accent': '#6a8a9a',
-      '--workspace-accent-soft': '#252d35',
-      '--workspace-accent-border': '#3a4a5a',
-      '--workspace-accent-contrast': '#f8f5f0',
-      '--status-active': '#5a9a7a',
-      '--status-cooling': '#c8a83a',
-      '--status-abandoned': '#c36a6a',
-      '--card-bg': '#1c232b',
-    },
-  },
-  blush: {
-    name: 'Blush',
-    meta: 'Soft clay',
-    light: {
-      '--ink': '#201716',
-      '--paper': '#f6efec',
-      '--warm-gray': '#e5d8d2',
-      '--muted': '#97827c',
-      '--accent-amber': '#a06d4f',
-      '--accent-sage': '#6a7866',
-      '--accent-slate': '#64707a',
-      '--accent-rose': '#ad6966',
-      '--workspace-accent': '#a5656f',
-      '--workspace-accent-soft': '#f2dfe1',
-      '--workspace-accent-border': '#d2a1a7',
-      '--workspace-accent-contrast': '#fff7f8',
-      '--status-active': '#5a7162',
-      '--status-cooling': '#9c7448',
-      '--status-abandoned': '#a96262',
-      '--card-bg': '#fffaf7',
-    },
-    dark: {
-      '--ink': '#e8e2da',
-      '--paper': '#201716',
-      '--warm-gray': '#332a2a',
-      '--muted': '#8a7a7a',
-      '--accent-amber': '#a06d4f',
-      '--accent-sage': '#6a7a6a',
-      '--accent-slate': '#6a7a8a',
-      '--accent-rose': '#c37a7a',
-      '--workspace-accent': '#a5656f',
-      '--workspace-accent-soft': '#332a2a',
-      '--workspace-accent-border': '#5a4a4a',
-      '--workspace-accent-contrast': '#f6efec',
-      '--status-active': '#5a9a7a',
-      '--status-cooling': '#b89a4a',
-      '--status-abandoned': '#c36a6a',
-      '--card-bg': '#281f1f',
-    },
-  },
-};
+const { families: themeFamilyDefinitions, legacyMigration: themeLegacyMigration } = globalThis.TabHarborThemePalettes;
 
 let themePreferences = {
   mode: 'system',
   paletteId: 'paper',
   customBackground: '',
   surfaceOpacity: 14,
+  uiScale: 100,
+  shortcutScale: 100,
   hitokotoEnabled: true,
+  sleepControlEnabled: false,
+  closeDuplicateNewTabsEnabled: false,
+  autoFocusSearchEnabled: true,
+  savedSessionRestoreMode: 'new-window',
+  savedSessionNavDisplayMode: 'name',
+  quickShortcutOpenMode: 'new-tab',
+  quickShortcutCols: 'auto',
+  searchEngine: 'default',
+  customSearchUrl: '',
 };
 
 let systemThemeMediaQuery = null;
@@ -250,20 +113,85 @@ let systemThemeListener = null;
 function normalizeThemePreferences(input) {
   const next = input && typeof input === 'object' ? input : {};
   const legacyThemeId = String(next.themeId || '');
-  const migrated = LEGACY_THEME_MIGRATION[legacyThemeId] || null;
+  const migrated = themeLegacyMigration[legacyThemeId] || null;
   const rawMode = String(next.mode || migrated?.mode || 'system');
   const rawPaletteId = String(next.paletteId || migrated?.paletteId || 'paper');
   const rawOpacity = Number(next.surfaceOpacity);
   const surfaceOpacity = Number.isFinite(rawOpacity)
     ? Math.min(60, Math.max(2, Math.round(rawOpacity)))
     : 14;
+  const rawUiScale = Number(next.uiScale);
+  const uiScale = Number.isFinite(rawUiScale)
+    ? Math.min(120, Math.max(100, Math.round(rawUiScale)))
+    : 100;
+  const rawShortcutScale = Number(next.shortcutScale);
+  const shortcutScale = Number.isFinite(rawShortcutScale)
+    ? Math.min(130, Math.max(100, Math.round(rawShortcutScale)))
+    : 100;
+  const rawSavedSessionRestoreMode = String(next.savedSessionRestoreMode || 'new-window');
+  const rawSavedSessionNavDisplayMode = String(next.savedSessionNavDisplayMode || 'name');
+  const rawQuickShortcutOpenMode = String(next.quickShortcutOpenMode || 'new-tab');
+  const rawQuickShortcutCols = String(next.quickShortcutCols || 'auto');
+  const rawSearchEngine = String(next.searchEngine || 'default');
   return {
     mode: VALID_THEME_MODES.has(rawMode) ? rawMode : 'system',
     paletteId: VALID_THEME_PALETTES.has(rawPaletteId) ? rawPaletteId : 'paper',
     customBackground: typeof next.customBackground === 'string' ? next.customBackground : '',
     surfaceOpacity,
+    uiScale,
+    shortcutScale,
     hitokotoEnabled: next.hitokotoEnabled !== false,
+    sleepControlEnabled: next.sleepControlEnabled === true,
+    closeDuplicateNewTabsEnabled: next.closeDuplicateNewTabsEnabled === true,
+    autoFocusSearchEnabled: next.autoFocusSearchEnabled !== false,
+    savedSessionRestoreMode: VALID_SAVED_SESSION_RESTORE_MODES.has(rawSavedSessionRestoreMode) ? rawSavedSessionRestoreMode : 'new-window',
+    savedSessionNavDisplayMode: VALID_SAVED_SESSION_NAV_DISPLAY_MODES.has(rawSavedSessionNavDisplayMode) ? rawSavedSessionNavDisplayMode : 'name',
+    quickShortcutOpenMode: VALID_QUICK_SHORTCUT_OPEN_MODES.has(rawQuickShortcutOpenMode) ? rawQuickShortcutOpenMode : 'new-tab',
+    quickShortcutCols: VALID_QUICK_SHORTCUT_COLS.has(rawQuickShortcutCols) ? rawQuickShortcutCols : 'auto',
+    searchEngine: VALID_SEARCH_ENGINES.has(rawSearchEngine) ? rawSearchEngine : 'default',
+    customSearchUrl: typeof next.customSearchUrl === 'string' ? next.customSearchUrl : '',
   };
+}
+
+function getQuickShortcutOpenMode(preferences = themePreferences) {
+  return normalizeThemePreferences(preferences).quickShortcutOpenMode;
+}
+
+function getQuickShortcutCols(preferences = themePreferences) {
+  return normalizeThemePreferences(preferences).quickShortcutCols;
+}
+
+function getSearchEngine(preferences = themePreferences) {
+  return normalizeThemePreferences(preferences).searchEngine;
+}
+
+function getCustomSearchUrl(preferences = themePreferences) {
+  return normalizeThemePreferences(preferences).customSearchUrl;
+}
+
+function buildSearchUrlForQuery(query, preferences = themePreferences) {
+  const text = String(query || '').trim();
+  if (!text) return '';
+  const prefs = normalizeThemePreferences(preferences);
+  let url = '';
+  if (prefs.searchEngine === 'custom') {
+    url = String(prefs.customSearchUrl || '').trim();
+  } else if (prefs.searchEngine !== 'default') {
+    url = SEARCH_ENGINE_PRESETS[prefs.searchEngine]?.url || '';
+  }
+  if (!url) return '';
+  const encoded = encodeURIComponent(text);
+  if (url.includes('{query}')) return url.replace(/\{query\}/g, encoded);
+  if (url.includes('%s')) return url.replace(/%s/g, encoded);
+  return `${url}${encoded}`;
+}
+
+function getSavedSessionRestoreMode(preferences = themePreferences) {
+  return normalizeThemePreferences(preferences).savedSessionRestoreMode;
+}
+
+function getSavedSessionNavDisplayMode(preferences = themePreferences) {
+  return normalizeThemePreferences(preferences).savedSessionNavDisplayMode;
 }
 
 function normalizeQuickShortcuts(input) {
@@ -342,7 +270,7 @@ function getResolvedTone(preferences = themePreferences) {
 }
 
 function getThemeFamilyDefinition(paletteId) {
-  return THEME_FAMILIES[paletteId] || THEME_FAMILIES.paper;
+  return themeFamilyDefinitions[paletteId] || themeFamilyDefinitions.paper;
 }
 
 function getResolvedThemeDefinition(preferences = themePreferences) {
@@ -436,11 +364,46 @@ function computeThemeOpacityVars(surfaceOpacity) {
   };
 }
 
+function computeThemeSizeVars({ uiScale = 100, shortcutScale = 100 } = {}) {
+  const normalizedUiScale = Math.min(120, Math.max(100, Math.round(Number(uiScale) || 100)));
+  const normalizedShortcutScale = Math.min(130, Math.max(100, Math.round(Number(shortcutScale) || 100)));
+  const shortcutRatio = normalizedShortcutScale / 100;
+  const scaledFont = basePx => `${Math.round(basePx * normalizedUiScale) / 100}px`;
+
+  return {
+    '--ui-scale': String(normalizedUiScale / 100),
+    '--shortcut-scale': String(shortcutRatio),
+    '--ui-font-8': scaledFont(8),
+    '--ui-font-9': scaledFont(9),
+    '--ui-font-10': scaledFont(10),
+    '--ui-font-11': scaledFont(11),
+    '--ui-font-12': scaledFont(12),
+    '--ui-font-13': scaledFont(13),
+    '--ui-font-14': scaledFont(14),
+    '--ui-font-15': scaledFont(15),
+    '--ui-font-16': scaledFont(16),
+    '--ui-font-17': scaledFont(17),
+    '--ui-font-18': scaledFont(18),
+    '--ui-font-20': scaledFont(20),
+    '--ui-font-22': scaledFont(22),
+    '--ui-font-24': scaledFont(24),
+    '--ui-font-28': scaledFont(28),
+    '--ui-font-40': scaledFont(40),
+    '--quick-shortcut-card-size': `${Math.round(76 * shortcutRatio)}px`,
+    '--quick-shortcut-shell-size': `${Math.round(40 * shortcutRatio)}px`,
+    '--quick-shortcut-icon-wrap-size': `${Math.round(40 * shortcutRatio)}px`,
+    '--quick-shortcut-icon-size': `${Math.round(22 * shortcutRatio)}px`,
+    '--quick-shortcut-label-size': `${Math.round(11 * shortcutRatio)}px`,
+  };
+}
+
 function applyThemePreferences() {
+  globalThis.TabHarborThemeStartup?.sync(themePreferences);
   const root = document.documentElement;
   const body = document.body;
   const theme = getResolvedThemeDefinition(themePreferences);
   const opacityVars = computeThemeOpacityVars(themePreferences.surfaceOpacity);
+  const sizeVars = computeThemeSizeVars(themePreferences);
 
   Object.entries(theme.vars).forEach(([name, value]) => {
     root.style.setProperty(name, value);
@@ -448,9 +411,18 @@ function applyThemePreferences() {
   Object.entries(opacityVars).forEach(([name, value]) => {
     root.style.setProperty(name, value);
   });
+  Object.entries(sizeVars).forEach(([name, value]) => {
+    root.style.setProperty(name, value);
+  });
   if (body) {
     body.classList.toggle('theme-tone-light', theme.tone === 'light');
     body.classList.toggle('theme-tone-dark', theme.tone === 'dark');
+  }
+
+  const quickTabsList = document.getElementById('quickTabsList');
+  if (quickTabsList) {
+    quickTabsList.classList.toggle('is-fixed-cols-4', themePreferences.quickShortcutCols === '4');
+    quickTabsList.classList.toggle('is-fixed-cols-5', themePreferences.quickShortcutCols === '5');
   }
 
   if (themePreferences.customBackground) {
@@ -472,26 +444,36 @@ function applyThemePreferences() {
 function renderThemeMenu() {
   const trigger = document.getElementById('themeMenuTrigger');
   const modeOptions = document.getElementById('themeModeOptions');
-  const pinToggle = document.getElementById('headerPinToggle');
   const panel = document.getElementById('themeMenuPanel');
   const options = document.getElementById('themeOptions');
   const transparencyRange = document.getElementById('themeTransparencyRange');
   const transparencyValue = document.getElementById('themeTransparencyValue');
-  if (!trigger || !panel || !modeOptions || !options || !transparencyRange || !transparencyValue) return;
+  const uiScaleRange = document.getElementById('themeUiScaleRange');
+  const uiScaleValue = document.getElementById('themeUiScaleValue');
+  const shortcutScaleRange = document.getElementById('themeShortcutScaleRange');
+  const shortcutScaleValue = document.getElementById('themeShortcutScaleValue');
+  if (
+    !trigger ||
+    !panel ||
+    !modeOptions ||
+    !options ||
+    !transparencyRange ||
+    !transparencyValue ||
+    !uiScaleRange ||
+    !uiScaleValue ||
+    !shortcutScaleRange ||
+    !shortcutScaleValue
+  ) return;
 
   trigger.setAttribute('aria-expanded', String(themeMenuOpen));
   panel.hidden = !themeMenuOpen;
+  const activeThemeMenuTab = themeMenuActiveTab === 'features' ? 'features' : 'appearance';
   transparencyRange.value = String(themePreferences.surfaceOpacity);
   transparencyValue.textContent = `${themePreferences.surfaceOpacity}%`;
-  if (pinToggle && typeof groupOrderState !== 'undefined') {
-    const pinTooltip = groupOrderState.pinEnabled
-      ? (themeT ? themeT('pinnedOrder') : 'Pinned order')
-      : (themeT ? themeT('pinOrder') : 'Pin order');
-    pinToggle.classList.toggle('is-active', groupOrderState.pinEnabled);
-    pinToggle.dataset.tooltip = pinTooltip;
-    pinToggle.setAttribute('aria-label', pinTooltip);
-    pinToggle.setAttribute('aria-pressed', String(groupOrderState.pinEnabled));
-  }
+  uiScaleRange.value = String(themePreferences.uiScale);
+  uiScaleValue.textContent = `${themePreferences.uiScale}%`;
+  shortcutScaleRange.value = String(themePreferences.shortcutScale);
+  shortcutScaleValue.textContent = `${themePreferences.shortcutScale}%`;
 
   modeOptions.innerHTML = THEME_MODE_ORDER.map(id => `
     <button
@@ -526,6 +508,16 @@ function renderThemeMenu() {
     </button>
   `;
   }).join('');
+
+  panel.querySelectorAll('[data-theme-menu-panel]').forEach(item => {
+    const isActive = item.dataset.themeMenuPanel === activeThemeMenuTab;
+    item.hidden = !isActive;
+  });
+  panel.querySelectorAll('[data-theme-menu-tab]').forEach(item => {
+    const isActive = item.dataset.themeMenuTab === activeThemeMenuTab;
+    item.classList.toggle('is-active', isActive);
+    item.setAttribute('aria-selected', String(isActive));
+  });
 }
 
 async function getQuickShortcuts() {
@@ -1215,15 +1207,12 @@ function renderQuickShortcutCard(shortcut) {
   const label = getShortcutLabel(shortcut);
   const safeLabel = themeEscapeHtml ? themeEscapeHtml(label) : label;
   const safeAriaLabel = themeEscapeHtmlAttribute ? themeEscapeHtmlAttribute(label) : label.replace(/"/g, '&quot;');
-  const iconData = themeGetIconSources({ url: shortcut.url, title: label }, 32);
+  const iconData = themeGetIconSources ? themeGetIconSources({ url: shortcut.url }, 32) : { sources: [], hostname: '' };
   const faviconUrl = iconData.sources[0] || '';
-  const fallbackUrl = iconData.sources[1] || '';
   const fallbackLabel = themeGetFallbackLabel(label, iconData.hostname);
   const safeId = themeEscapeHtmlAttribute ? themeEscapeHtmlAttribute(shortcut.id) : shortcut.id.replace(/"/g, '&quot;');
   const safeUrl = themeEscapeHtmlAttribute ? themeEscapeHtmlAttribute(shortcut.url) : shortcut.url.replace(/"/g, '&quot;');
   const customIcon = normalizeShortcutIcon(shortcut.icon);
-  const iconErrorFallback = (customIcon.kind === 'image' || customIcon.kind === 'svg') ? (faviconUrl || fallbackUrl) : fallbackUrl;
-  const safeIconErrorFallback = themeEscapeHtmlAttribute ? themeEscapeHtmlAttribute(iconErrorFallback) : iconErrorFallback.replace(/"/g, '&quot;');
   const primaryIconUrl = customIcon.kind === 'image'
     ? customIcon.value
     : customIcon.kind === 'svg'
@@ -1232,12 +1221,21 @@ function renderQuickShortcutCard(shortcut) {
         ? ''
         : faviconUrl;
   const glyphIcon = customIcon.kind === 'glyph' ? customIcon.value : '';
+  const fallbackSources = (customIcon.kind === 'image' || customIcon.kind === 'svg')
+    ? iconData.sources
+    : iconData.sources.slice(1);
+  const iconErrorFallback = fallbackSources[0] || '';
+  const safeIconErrorFallback = themeEscapeHtmlAttribute ? themeEscapeHtmlAttribute(iconErrorFallback) : iconErrorFallback.replace(/"/g, '&quot;');
+  const fallbackSrcset = fallbackSources.length > 1 ? JSON.stringify(fallbackSources.slice(1)) : '';
+  const safeFallbackSrcset = fallbackSrcset
+    ? (themeEscapeHtmlAttribute ? themeEscapeHtmlAttribute(fallbackSrcset) : fallbackSrcset.replace(/"/g, '&quot;'))
+    : '';
 
   return `
     <div class="quick-shortcut-card" data-shortcut-id="${safeId}">
       <button class="quick-shortcut-open" type="button" data-action="open-quick-shortcut" data-shortcut-url="${safeUrl}" aria-label="${safeAriaLabel}" draggable="false">
         <span class="quick-shortcut-icon-wrap">
-          ${primaryIconUrl ? `<img class="quick-shortcut-icon${customIcon.kind === 'image' ? ' quick-shortcut-icon-custom' : ''}" src="${primaryIconUrl}" alt="" draggable="false" data-fallback-src="${safeIconErrorFallback}">` : ''}
+          ${primaryIconUrl ? `<img class="quick-shortcut-icon${customIcon.kind === 'image' ? ' quick-shortcut-icon-custom' : ''}" src="${primaryIconUrl}" alt="" draggable="false" data-fallback-src="${safeIconErrorFallback}"${safeFallbackSrcset ? ` data-fallback-srcset="${safeFallbackSrcset}"` : ''}>` : ''}
           ${glyphIcon ? `<span class="quick-shortcut-custom-glyph" aria-hidden="true">${glyphIcon}</span>` : ''}
           <span class="quick-shortcut-fallback"${primaryIconUrl || glyphIcon ? ' style="display:none"' : ''}>${fallbackLabel}</span>
         </span>
@@ -1268,11 +1266,16 @@ function renderQuickShortcutAddCard() {
   `;
 }
 
+let lastQuickShortcutsRenderKey = '';
+
 async function renderQuickShortcuts() {
   const list = document.getElementById('quickTabsList');
   if (!list) return;
 
   const shortcuts = await getQuickShortcuts();
+  const renderKey = `${JSON.stringify(shortcuts)}|${getQuickShortcutCols()}`;
+  if (renderKey === lastQuickShortcutsRenderKey && list.innerHTML) return;
+  lastQuickShortcutsRenderKey = renderKey;
   list.innerHTML = `${shortcuts.map(renderQuickShortcutCard).join('')}${renderQuickShortcutAddCard()}`;
 }
 
@@ -1753,10 +1756,27 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
-  if (action === 'open-quick-shortcut') {    e.stopImmediatePropagation();
+  if (action === 'open-quick-shortcut') {
+    e.stopImmediatePropagation();
     if (Date.now() < quickShortcutSuppressClickUntil) return;
     const url = actionEl.dataset.shortcutUrl;
     if (!url) return;
+    if (e.ctrlKey || e.metaKey) {
+      await chrome.tabs.create({ url, active: false });
+      return;
+    }
+    if (e.shiftKey) {
+      await chrome.windows.create({ url, focused: true });
+      return;
+    }
+    if (getQuickShortcutOpenMode() === 'current-tab') {
+      if (typeof navigateCurrentTabToUrl === 'function') {
+        const navigated = await navigateCurrentTabToUrl(url).catch(() => false);
+        if (navigated) return;
+      }
+      await openOrFocusUrl(url);
+      return;
+    }
     await openOrFocusUrl(url);
     return;
   }
@@ -2014,11 +2034,15 @@ function syncPopupTheme(targetDoc) {
   if (!root) return;
   const theme = getResolvedThemeDefinition(themePreferences);
   const opacityVars = computeThemeOpacityVars(themePreferences.surfaceOpacity);
+  const sizeVars = computeThemeSizeVars(themePreferences);
 
   Object.entries(theme.vars).forEach(([name, value]) => {
     root.style.setProperty(name, value);
   });
   Object.entries(opacityVars).forEach(([name, value]) => {
+    root.style.setProperty(name, value);
+  });
+  Object.entries(sizeVars).forEach(([name, value]) => {
     root.style.setProperty(name, value);
   });
   if (body) {
@@ -2039,8 +2063,24 @@ async function saveThemePreferences(nextPreferences) {
   return themePreferences;
 }
 
+async function saveSavedSessionRestoreMode(mode) {
+  return saveThemePreferences({ savedSessionRestoreMode: mode });
+}
+
+async function saveSavedSessionNavDisplayMode(mode) {
+  return saveThemePreferences({ savedSessionNavDisplayMode: mode });
+}
+
 globalThis.TabOutThemeControls = {
+  SEARCH_ENGINE_PRESETS,
+  buildSearchUrlForQuery,
   filterRealTabs,
+  getCustomSearchUrl,
+  getQuickShortcutCols,
+  getQuickShortcutOpenMode,
+  getSavedSessionNavDisplayMode,
+  getSavedSessionRestoreMode,
+  getSearchEngine,
   getResolvedThemeDefinition,
   getResolvedTone,
   getQuickShortcuts,
@@ -2049,8 +2089,9 @@ globalThis.TabOutThemeControls = {
   normalizeQuickShortcuts,
   normalizeThemePreferences,
   removeQuickShortcutById,
+  saveSavedSessionNavDisplayMode,
+  saveSavedSessionRestoreMode,
   saveQuickShortcutOrder,
   saveQuickShortcuts,
   syncPopupTheme,
-  normalizeThemePreferences,
 };
