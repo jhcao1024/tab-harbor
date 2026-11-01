@@ -689,19 +689,14 @@ function detachSavedSessionTabToNewSession({
 
   function renderSavedTabsNavArea(sessions = []) {
     const runtime = getDashboardRuntime();
-    const renderSwitch = typeof runtime.renderWorkspacePageSwitch === 'function'
-      ? runtime.renderWorkspacePageSwitch('saved-tabs')
+    const toolbar = typeof runtime.renderWorkspaceToolbar === 'function'
+      ? runtime.renderWorkspaceToolbar('saved-tabs')
       : '';
-    const renderTheme = typeof runtime.renderWorkspaceThemeTools === 'function'
-      ? runtime.renderWorkspaceThemeTools()
-      : '';
-
     return `
-      <div class="group-nav-list" data-nav-kind="saved-sessions">
+      ${toolbar}
+      <div class="group-nav-list" data-nav-kind="saved-sessions"${sessions.length ? '' : ' hidden'}>
         ${sessions.map(renderSavedSessionNavButton).join('')}
-      </div>
-      ${renderSwitch}
-      ${renderTheme}`;
+      </div>`;
   }
 
   async function loadSavedTabSessionOrder(sessions = []) {
@@ -1266,13 +1261,6 @@ function detachSavedSessionTabToNewSession({
     const action = actionEl.dataset.action;
     if (action === 'switch-workspace-page') {
       await setWorkspacePage(actionEl.dataset.page || 'home');
-      return;
-    }
-
-    if (action === 'save-current-window-session') {
-      if (actionEl.closest('#homePage')) return;
-      event.preventDefault();
-      await saveCurrentWindowSession();
       return;
     }
 

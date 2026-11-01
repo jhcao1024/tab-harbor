@@ -93,3 +93,7 @@ The home rail includes native Chrome bookmarks. `bookmarks-runtime.js` owns fold
 ## All-window workspace
 
 Portus dashboards query all browser windows for open tabs and native Chrome groups. Display and tab-action queries share this scope; batch close still preserves the last tab in every window. Explicit current-window session actions remain local. See `lat.md/features.md`.
+
+## Workspace menu and focus
+
+The shared toolbar renders a footer-style count, extra-dashboard cleanup, and page navigation above the icon list. Tab actions remain in the Open Tabs section header. Both Home and Saved tabs use `renderWorkspaceToolbar`. Opening a new tab keeps the browser address-bar focus by default; legacy auto-focus settings do not opt users into the page search field.

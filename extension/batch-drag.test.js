@@ -365,10 +365,10 @@ test('multi-select mode: clicking a row toggles it instead of activating the tab
   assert.doesNotMatch(runtimeJs, /toggleGuardHit = Boolean\(key\)[\s\S]{0,2000}(Date\.now\(\) - pageChipLastKeydownAt > 120)/);
 });
 
-test('section header above all cards adds global close-duplicates and merge-all', () => {
-  // buildOpenTabsSectionActions drives both render paths of the open-tabs
-  // section header; close-duplicates appears only while some card-visible URL
-  // is duplicated anywhere in the window (getRealTabs scope — internal pages
+test('Open Tabs section keeps global close-duplicates and merge-all', () => {
+  // buildOpenTabsSectionActions stays in the Open Tabs section header.
+  // Close-duplicates appears only while a card-visible URL
+  // is duplicated in the workspace (getRealTabs scope — internal pages
   // and the dashboard's own new-tab page never inflate the count).
   assert.match(runtimeJs, /function buildOpenTabsSectionActions\(\) \{[\s\S]{0,500}const counts = \{\};\s*for \(const tab of getRealTabs\(\)\) \{[\s\S]{0,200}const dupeUrls = Object\.entries\(counts\)\s*\.filter\(\(\[, c\]\) => c > 1\)/);
   assert.match(runtimeJs, /data-action="dedup-keep-one" data-dupe-urls="\$\{dupeUrlsEncoded\}"/);
@@ -1214,7 +1214,7 @@ test('saved-session close paths return fulfilled source-tab results without undo
   `)();
   const tabs = [
     { id: 11, url: 'https://example.com/a', windowId: 7 },
-    { id: 12, url: 'https://example.com/b', windowId: 7 },
+    { id: 12, url: 'https://example.com/b', windowId: 8 },
   ];
   const originalWarn = console.warn;
   let savedSnapshots = 0;
@@ -2108,4 +2108,52 @@ test('group navigation drop targets distinguish rows at the same horizontal posi
   assert.equal(dropIndex(slots, 20, 70), 2);
   assert.equal(dropIndex(slots, 80, 110), 3);
   assert.equal(dropIndex(slots, -20, -10), 0);
+});
+
+// @lat: [[features#Workspace menu above group icons]]
+test('workspace menu uses footer-style counts and keeps tab actions out of navigation', () => {
+  const render = new Function(`
+    const getRealTabs = () => [{id: 1}, {id: 2}];
+    const openTabs = [{isTabOut: true}, {isTabOut: true}];
+    const runtimeT = null;
+    const buildOpenTabsSectionActions = () => '<button data-action="close-all-open-tabs">Close</button>';
+    const renderWorkspaceThemeTools = () => '<button>Settings</button>';
+    ${extractFn(runtimeJs, 'renderWorkspacePageSwitch')}
+    ${extractFn(runtimeJs, 'renderTabOutDupeBanner')}
+    ${extractFn(runtimeJs, 'renderWorkspaceToolbar')}
+    return renderWorkspaceToolbar;
+  `)();
+  for (const page of ['home', 'saved-tabs']) {
+    const html = render(page);
+    assert.match(html, /workspace-tab-count[^>]*>2</);
+    assert.match(html, /class="stat-num workspace-tab-count"/);
+    assert.match(html, /class="stat-label"/);
+    assert.doesNotMatch(html, /data-action="(?:close-all-open-tabs|save-current-window-session|group-card-tabs|dedup-keep-one)"/);
+    assert.match(html, /data-action="close-tabout-dupes"/);
+    assert.match(html, /data-page="home"/);
+    assert.match(html, /data-page="saved-tabs"/);
+  }
+});
+
+// @lat: [[features#Workspace features#All-window session saving]]
+test('session picker includes restorable tabs from every window and retains group scope', async () => {
+  const tabs = [
+    { id: 1, windowId: 10, url: 'https://example.com/a' },
+    { id: 2, windowId: 20, url: 'https://example.com/b' },
+    { id: 3, windowId: 20, url: 'chrome://settings/' },
+  ];
+  const context = await new Function(`
+    const domainGroups = [{ domain: 'example.com', tabs: arguments[0] }];
+    const refreshTabSessionModel = async () => {};
+    const getCurrentWindowId = async () => 10;
+    const getGroupDisplayLabel = group => group.domain;
+    const getOrderedUniqueTabsForGroup = group => group.tabs;
+    const runtimeIsRestorableTabUrl = url => url.startsWith('https://');
+    ${extractFn(runtimeJs, 'getTabSessionPickerContext')}
+    return getTabSessionPickerContext();
+  `)(tabs);
+  assert.deepEqual(context.groups[0].tabs.map(tab => tab.id), [1, 2]);
+  assert.deepEqual(context.groups[0].tabs.map(tab => tab.windowId), [10, 20]);
+  const scoped = new Function(`${extractFn(runtimeJs, 'getScopedTabSessionPickerGroups')}\nreturn getScopedTabSessionPickerGroups;`)();
+  assert.deepEqual(scoped(context.groups, [2])[0].tabs.map(tab => tab.id), [2]);
 });

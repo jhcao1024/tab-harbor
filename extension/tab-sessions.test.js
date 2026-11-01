@@ -583,3 +583,35 @@ test('createSavedTabSessionFromTab falls back to friendly domain and de-duplicat
   assert.equal(created.name, 'Docs 2');
   assert.equal(created.source, 'manual');
 });
+
+// @lat: [[features#Workspace features#Concurrent session writes]]
+test('independent extension pages preserve simultaneous saves and recover after a failed write', async () => {
+  const vm = require('node:vm');
+  const fs = require('node:fs');
+  let stored = [];
+  let failWrite = false;
+  const chrome = { storage: { local: {
+    async get() { return { savedTabSessions: structuredClone(stored) }; },
+    async set(payload) {
+      if (failWrite) { failWrite = false; throw new Error('Storage unavailable'); }
+      stored = structuredClone(payload.savedTabSessions);
+    },
+  } } };
+  const source = fs.readFileSync(require.resolve('./tab-sessions.js'), 'utf8');
+  const page = () => {
+    const context = vm.createContext({ chrome, navigator: { locks: navigator.locks }, require });
+    vm.runInContext(source, context);
+    return context.TabHarborTabSessions;
+  };
+  const a = page(), b = page();
+  const snapshot = id => ({ id, name: id, tabs: [{ url: `https://example.com/${id}` }] });
+  await Promise.all([a.addSavedTabSession(snapshot('a')), b.addSavedTabSession(snapshot('b'))]);
+  assert.deepEqual(stored.map(s => s.id).sort(), ['a', 'b']);
+  await Promise.all([a.renameSavedTabSession('a', 'Renamed'), b.addSavedTabSession(snapshot('c'))]);
+  assert.equal(stored.find(s => s.id === 'a').name, 'Renamed');
+  assert.equal(stored.length, 3);
+  failWrite = true;
+  await assert.rejects(a.addSavedTabSession(snapshot('failed')), /Storage unavailable/);
+  await b.addSavedTabSession(snapshot('d'));
+  assert.equal(stored.length, 4);
+});

@@ -5791,3 +5791,42 @@ body.page-chip-drop-new-group .main-content {
     color: var(--ink);
     font: inherit;
 }
+
+/* Keep workspace controls together, above the wrapping group icons. */
+#workspaceTopNav {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 16px;
+}
+.workspace-toolbar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px 16px;
+    min-height: 40px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--warm-gray);
+}
+.workspace-tab-summary { flex: 0 0 auto; }
+.workspace-tab-count { font-variant-numeric: tabular-nums; }
+.workspace-menu-controls {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 10px 16px;
+}
+.workspace-toolbar .tab-cleanup-banner { margin: 0; }
+#workspaceTopNav .group-nav-list { flex: none; width: 100%; }
+#workspaceTopNav .group-nav-list[hidden] { display: none; }
+#workspaceTopNav .group-nav-list[data-nav-kind="saved-sessions"] {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+}
+#workspaceTopNav .group-nav-list[data-nav-kind="saved-sessions"][hidden] { display: none; }
+@media (max-width: 600px) {
+    .workspace-toolbar { column-gap: 10px; }
+    .workspace-menu-controls { column-gap: 10px; }
+}

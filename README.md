@@ -57,7 +57,7 @@ When you want the page to feel more like your own workspace, you can **switch th
 
 ### Search with a head start
 
-The search field focuses itself whenever the Portus tab comes to the front, so "new tab → type → Enter" needs no click. Once you start typing, inline suggestions appear drawn from **open tabs, quick links, saved sessions, and your recent history** — pick an open tab to switch to it (Ctrl/Cmd-click opens a duplicate in a new tab), or pick any other suggestion to open it in a new tab. Keyboard arrows, Enter, and Escape work as expected. The panel stays quiet until you type, so the desk never shouts at you.
+New tabs keep focus in the browser address bar by default. Click the page search field to use its suggestions, or explicitly enable page-search auto-focus in Desk settings. Once you start typing, inline suggestions appear drawn from **open tabs, quick links, saved sessions, and your recent history** — pick an open tab to switch to it (Ctrl/Cmd-click opens a duplicate in a new tab), or pick any other suggestion to open it in a new tab. Keyboard arrows, Enter, and Escape work as expected. The panel stays quiet until you type, so the desk never shouts at you.
 
 <table>
   <tr>

@@ -344,3 +344,11 @@ test('normalizeQuickShortcuts normalizes icon URL to image kind', () => {
   assert.equal(result[0].iconKind, 'image');
   assert.equal(result[0].icon, 'https://ex.com/f.png');
 });
+
+// @lat: [[startup#Address bar focus by default]]
+test('page search focus requires a new explicit opt-in, including for legacy profiles', () => {
+  assert.equal(normalizeThemePreferences({}).autoFocusSearchEnabled, false);
+  assert.equal(normalizeThemePreferences({ autoFocusSearchEnabled: true }).autoFocusSearchEnabled, false);
+  assert.equal(normalizeThemePreferences({ autoFocusSearchEnabled: true, autoFocusSearchOptIn: true }).autoFocusSearchEnabled, true);
+  assert.equal(normalizeThemePreferences({ autoFocusSearchEnabled: false, autoFocusSearchOptIn: true }).autoFocusSearchEnabled, false);
+});

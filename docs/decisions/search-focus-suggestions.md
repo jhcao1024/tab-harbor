@@ -1,5 +1,7 @@
 # Decision: Search-field auto-focus and inline suggestions
 
+> Portus update: address-bar focus is now the default. Automatic page focus and the `?focus=1` redirect require a new explicit settings opt-in; the HTML autofocus attribute has been removed. The original decision below records upstream behavior.
+
 > Status: Current — shipped and converged.
 > Class: Feature.
 > Owner: `extension/index.html` search header (`headerSearchForm`), `extension/dashboard-runtime.js`, `extension/search-suggestions.js`, `extension/manifest.json`.

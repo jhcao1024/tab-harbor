@@ -212,7 +212,7 @@ let cardActionInFlight = false;
 let tabSessionPickerState = {
   open: false,
   mode: 'new',
-  source: 'current-window',
+  source: 'all-windows',
   selectedTabIds: [],
   newSessionName: '',
   targetSessionId: '',
@@ -1993,14 +1993,12 @@ async function submitTodoEditor() {
 
 async function getTabSessionPickerContext() {
   await refreshTabSessionModel();
-  const currentWindowId = await getCurrentWindowId();
   const groups = domainGroups
     .map(group => ({
       key: String(group.domain),
       label: getGroupDisplayLabel(group),
       manualGroupId: String(group.manualGroupId || ''),
       tabs: getOrderedUniqueTabsForGroup(group)
-        .filter(tab => tab.windowId === currentWindowId)
         .filter(tab => runtimeIsRestorableTabUrl ? runtimeIsRestorableTabUrl(tab.url || '') : true)
         .map(tab => ({
           id: tab.id,
@@ -2057,7 +2055,7 @@ function getSavedSessionOptionLabel(session = {}) {
 }
 
 async function openTabSessionPicker({
-  source = 'current-window',
+  source = 'all-windows',
   initialTabIds = null,
   scopeTabIds = null,
 } = {}) {
@@ -2089,7 +2087,7 @@ function closeTabSessionPicker() {
   tabSessionPickerState = {
     open: false,
     mode: 'new',
-    source: 'current-window',
+    source: 'all-windows',
     selectedTabIds: [],
     newSessionName: '',
     targetSessionId: '',
@@ -2169,7 +2167,7 @@ function renderTabSessionPicker(groups = tabSessionPickerState.groups) {
           </div>
         </section>`;
     }).join('')
-    : `<div class="session-picker-empty">${runtimeT ? runtimeT('sessionPickerEmpty') : 'No restorable tabs in this window.'}</div>`;
+    : `<div class="session-picker-empty">${runtimeT ? runtimeT('sessionPickerEmpty') : 'No tabs available to save.'}</div>`;
 
   return `
     <section class="session-picker" id="tabSessionPicker" aria-label="${runtimeT ? runtimeT('sessionPickerTitle') : 'Choose what to save'}">
@@ -4240,7 +4238,7 @@ function focusSearchFieldOnForeground() {
   // The auto-focus search toggle (Desk settings → Features) gates all
   // foreground auto-focus, including the window focus / visibilitychange
   // listeners below.
-  if (typeof themePreferences !== 'undefined' && themePreferences.autoFocusSearchEnabled === false) return;
+  if (typeof themePreferences === 'undefined' || themePreferences.autoFocusSearchEnabled !== true) return;
   if (!shouldAutoFocusSearchField()) return;
   const input = getSearchSuggestionsInput();
   if (!input) return;
@@ -4258,6 +4256,7 @@ function scheduleSearchFocusVerification() {
   searchFocusRetryTimer = null;
   searchFocusRetryAttempt = 0;
   const verify = () => {
+    if (typeof themePreferences === 'undefined' || themePreferences.autoFocusSearchEnabled !== true) return;
     const input = getSearchSuggestionsInput();
     // The user took over (clicked elsewhere / typed) — stop retrying.
     if (!input || document.activeElement === input) return;
@@ -4271,6 +4270,7 @@ function scheduleSearchFocusVerification() {
       // Re-check right before focusing: if the user has since taken over
       // (keyboard-navigated into another form field or contenteditable), do
       // not yank focus away from them.
+      if (typeof themePreferences === 'undefined' || themePreferences.autoFocusSearchEnabled !== true) return;
       if (!shouldAutoFocusSearchField()) return;
       input.focus({ preventScroll: true });
       verify();
@@ -5207,18 +5207,29 @@ function renderTabOutDupeBanner(dupeExtras) {
     </div>`;
 }
 
-function renderGroupNavArea(groups) {
-  // Count extra Portus tabs (all but the current one) to decide whether
-  // the cleanup banner shows and what number it carries.
-  const tabOutTabs = openTabs.filter(t => t.isTabOut);
-  const dupeExtras = tabOutTabs.length > 1 ? tabOutTabs.length - 1 : 0;
+function renderWorkspaceToolbar(currentPage = 'home') {
+  const count = getRealTabs().length;
+  const dupeExtras = Math.max(0, openTabs.filter(tab => tab.isTabOut).length - 1);
   return `
-    <div class="group-nav-list" data-nav-kind="open-tabs">
+    <div class="workspace-toolbar">
+      <div class="stat workspace-tab-summary">
+        <div class="stat-num workspace-tab-count">${count}</div>
+        <div class="stat-label">${runtimeT ? runtimeT('openTabsSectionTitle') : 'Open tabs'}</div>
+      </div>
+      <div class="workspace-menu-controls">
+        ${renderTabOutDupeBanner(dupeExtras)}
+        ${renderWorkspacePageSwitch(currentPage)}
+        ${renderWorkspaceThemeTools()}
+      </div>
+    </div>`;
+}
+
+function renderGroupNavArea(groups) {
+  return `
+    ${renderWorkspaceToolbar('home')}
+    <div class="group-nav-list" data-nav-kind="open-tabs"${groups.length ? '' : ' hidden'}>
       ${groups.map(group => renderGroupNav(group)).join('')}
-    </div>
-    ${renderTabOutDupeBanner(dupeExtras)}
-    ${renderWorkspacePageSwitch('home')}
-    ${renderWorkspaceThemeTools()}`;
+    </div>`;
 }
 
 function buildElementFromHtml(html) {
@@ -5960,12 +5971,12 @@ document.addEventListener('click', async (e) => {
 
   if (action === 'toggle-auto-focus-search') {
     const nextEnabled = !(typeof themePreferences !== 'undefined' && themePreferences.autoFocusSearchEnabled);
-    await saveThemePreferences({ autoFocusSearchEnabled: nextEnabled });
+    await saveThemePreferences({ autoFocusSearchEnabled: nextEnabled, autoFocusSearchOptIn: true });
     // Mirror the toggle into localStorage so focus-redirect.js (the first
     // <head> script, which runs before chrome.storage is readable) can decide
     // synchronously whether to self-navigate. '0' = off.
     try {
-      localStorage.setItem('tabHarborAutoFocusSearch', nextEnabled ? '1' : '0');
+      localStorage.setItem('portusAutoFocusSearchOptIn', nextEnabled ? '1' : '0');
     } catch { /* ignore */ }
     const toggleSwitch = document.querySelector('[data-action="toggle-auto-focus-search"]');
     if (toggleSwitch) {
@@ -5991,7 +6002,7 @@ document.addEventListener('click', async (e) => {
   if (action === 'save-current-window-session') {
     if (!actionEl.closest('#homePage')) return;
     e.preventDefault();
-    await openTabSessionPicker({ source: 'current-window' });
+    await openTabSessionPicker({ source: 'all-windows' });
     return;
   }
 
@@ -7811,12 +7822,12 @@ async function initializeDashboardRuntime() {
   updateBackToTopVisibility();
 
   // Search-field auto-focus + inline suggestions.
-  const autoFocusEnabled = !(typeof themePreferences !== 'undefined' && themePreferences.autoFocusSearchEnabled === false);
+  const autoFocusEnabled = typeof themePreferences !== 'undefined' && themePreferences.autoFocusSearchEnabled === true;
   // Mirror the toggle into localStorage so focus-redirect.js (head-first,
   // runs before chrome.storage is readable) sees the persisted value on every
   // load — not only when the user toggles it here. '0' = off.
   try {
-    localStorage.setItem('tabHarborAutoFocusSearch', autoFocusEnabled ? '1' : '0');
+    localStorage.setItem('portusAutoFocusSearchOptIn', autoFocusEnabled ? '1' : '0');
   } catch { /* ignore */ }
   setupSearchSuggestions();
   if (autoFocusEnabled) {
@@ -7940,6 +7951,7 @@ globalThis.TabHarborDashboardRuntime = {
   getOpenTabs: () => openTabs,
   renderDashboard,
   renderWorkspacePageSwitch,
+  renderWorkspaceToolbar,
   renderWorkspaceThemeTools,
   syncWorkspaceTopNavMarkup,
   restoreSavedTabToBrowser,

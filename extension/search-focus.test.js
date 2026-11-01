@@ -60,3 +60,14 @@ test('shouldAutoFocusSearchField: contenteditable → do not steal', () => {
   doc.activeElement = { tagName: 'DIV', isContentEditable: true };
   assert.equal(fn(), false);
 });
+
+test('foreground activation leaves focus untouched unless page search was enabled', () => {
+  const run = new Function('themePreferences', `
+    const shouldAutoFocusSearchField = () => { throw new Error('must not attempt page focus'); };
+    ${extractFn(runtimeJs, 'focusSearchFieldOnForeground')}
+    focusSearchFieldOnForeground();
+  `);
+  run(undefined);
+  run({});
+  run({autoFocusSearchEnabled: false});
+});

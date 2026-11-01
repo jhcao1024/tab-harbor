@@ -138,7 +138,13 @@
       throw new Error('Invalid config: no valid data to import');
     }
 
-    await chrome.storage.local.set(storagePayload);
+    if ('savedTabSessions' in storagePayload) {
+      // Imports intentionally replace sessions, but must not interleave with saves.
+      await globalScope.navigator.locks.request('tab-harbor-saved-tab-sessions',
+        { mode: 'exclusive' }, () => chrome.storage.local.set(storagePayload));
+    } else {
+      await chrome.storage.local.set(storagePayload);
+    }
     // chromeTabGroupsMeta was a session-local Chrome id cache accidentally
     // exported by older builds. Never import it across devices; removing it
     // also prevents an old config from being mistaken for durable ownership.

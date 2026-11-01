@@ -528,20 +528,30 @@
     };
   }
 
+  // Web Locks coordinate every extension page, including pages in other windows.
+  // Hold the lock across the entire read-modify-write operation, not only set().
+  function serializeSessionWrite(operation) {
+    return (...args) => globalScope.navigator.locks.request(
+      'tab-harbor-saved-tab-sessions',
+      { mode: 'exclusive' },
+      () => operation(...args)
+    );
+  }
+
   const api = {
     SAVED_TAB_SESSIONS_KEY,
     buildSessionSnapshot,
     buildSessionGroupsFromTabs,
     createSavedTabSessionFromTab,
     createRestoredSessionGroups,
-    deleteSavedTabSession,
+    deleteSavedTabSession: serializeSessionWrite(deleteSavedTabSession),
     getSavedTabSessions,
-    addSavedTabSession,
-    appendSavedTabSessionTabs,
-    renameSavedTabSession,
-    updateSavedTabSessionTabs,
+    addSavedTabSession: serializeSessionWrite(addSavedTabSession),
+    appendSavedTabSessionTabs: serializeSessionWrite(appendSavedTabSessionTabs),
+    renameSavedTabSession: serializeSessionWrite(renameSavedTabSession),
+    updateSavedTabSessionTabs: serializeSessionWrite(updateSavedTabSessionTabs),
     normalizeSavedTabSessions,
-    saveSavedTabSessions,
+    saveSavedTabSessions: serializeSessionWrite(saveSavedTabSessions),
   };
 
   if (typeof module !== 'undefined' && module.exports) {

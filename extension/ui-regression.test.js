@@ -47,7 +47,7 @@ test('saved tabs page scripts load before dashboard runtime and expose a top pag
 
 test('workspace top selector stays mounted when open tabs become empty', () => {
   assert.match(runtimeJs, /function renderGroupNavArea\(groups\)/);
-  assert.match(runtimeJs, /renderWorkspacePageSwitch\('home'\)/);
+  assert.match(runtimeJs, /renderWorkspaceToolbar\('home'\)/);
   assert.match(runtimeJs, /renderWorkspaceThemeTools\(\)/);
   assert.match(runtimeJs, /function renderOpenTabsSummary\(realTabs = getRealTabs\(\)\) \{[\s\S]*syncWorkspaceTopNavMarkup\(renderGroupNavArea\(domainGroups\), true\);[\s\S]*syncWorkspaceTopNavMarkup\(renderGroupNavArea\(\[\]\), true\);/);
   assert.match(runtimeJs, /function renderOpenTabsArea\(realTabs = getRealTabs\(\)\) \{[\s\S]*syncWorkspaceTopNavMarkup\(renderGroupNavArea\(domainGroups\), true\);[\s\S]*syncWorkspaceTopNavMarkup\(renderGroupNavArea\(\[\]\), true\);/);
@@ -91,13 +91,13 @@ test('saved tabs page keeps session management while home owns session save acti
 });
 
 test('saved-session picker scopes visible tabs to the selected entry point', () => {
-  assert.match(runtimeJs, /async function openTabSessionPicker\(\{\s*source = 'current-window',\s*initialTabIds = null,\s*scopeTabIds = null,\s*\} = \{\}\)/);
+  assert.match(runtimeJs, /async function openTabSessionPicker\(\{\s*source = 'all-windows',\s*initialTabIds = null,\s*scopeTabIds = null,\s*\} = \{\}\)/);
   assert.match(runtimeJs, /const scopedGroups = getScopedTabSessionPickerGroups\(context\.groups, scopeTabIds\);/);
   assert.match(runtimeJs, /const allIds = getTabSessionPickerAllIds\(scopedGroups\);/);
   assert.match(runtimeJs, /groups: scopedGroups,/);
   assert.match(runtimeJs, /const newSessionName = String\(tabSessionPickerState\.newSessionName \|\| ''\)\.trim\(\);/);
   assert.match(runtimeJs, /saveSelectedTabSession\(\s*selectedIds,\s*tabSessionPickerState\.source \|\| 'selected',\s*newSessionName\s*\)/);
-  assert.match(runtimeJs, /if \(action === 'save-current-window-session'\) \{[\s\S]{0,280}openTabSessionPicker\(\{ source: 'current-window' \}\)/);
+  assert.match(runtimeJs, /if \(action === 'save-current-window-session'\) \{[\s\S]{0,280}openTabSessionPicker\(\{ source: 'all-windows' \}\)/);
   assert.match(runtimeJs, /if \(action === 'save-single-tab-session'\) \{[\s\S]{0,360}openSessionPickerForTabs\(\[tabId\], 'single-tab'\);/);
   assert.match(runtimeJs, /if \(action === 'save-domain-session'\) \{[\s\S]{0,720}openSessionPickerForTabs\(tabIds, 'group'\);/);
   assert.doesNotMatch(runtimeJs, /saveSelectedTabSession\(\[tabId\], 'single-tab'\)/);
@@ -634,10 +634,9 @@ test('theme menu styles and custom background layer are defined', () => {
   assert.match(html, /id="headerSearchSuggestions"/);
   assert.match(html, /id="headerSearchSuggestionsHint"/);
   assert.match(html, /<script src="search-suggestions\.js"><\/script>/);
-  // New-tab focus workaround: the redirect script is the first script in head
-  // and the search input carries autofocus for the post-redirect load.
+  // Redirect support is opt-in; markup must never steal address-bar focus.
   assert.match(html, /<script src="focus-redirect\.js"><\/script>[\s\S]*<link rel="preconnect"/);
-  assert.match(html, /id="headerSearchInput"[\s\S]*autofocus>/);
+  assert.doesNotMatch(html, /<input[^>]*id="headerSearchInput"[^>]*\bautofocus\b/);
   assert.match(runtimeJs, /function isTabHarborNewTabUrl\(/);
   // The duplicate count and close-extras banner must recognize the new-tab URL
   // of every supported browser (Chrome and Edge), or tabs keep their native
@@ -1551,4 +1550,9 @@ test('footer open-tabs count matches the listed tabs, excluding Tab Harbor and b
   assert.match(runtimeJs, /function updateOpenTabsStat\(realTabs = getRealTabs\(\)\) \{[\s\S]*?statTabs\.textContent = realTabs\.length;/);
   assert.match(runtimeJs, /function renderOpenTabsArea\(realTabs = getRealTabs\(\)\) \{[\s\S]*?updateOpenTabsStat\(realTabs\);/);
   assert.doesNotMatch(runtimeJs, /statTabs\.textContent = openTabs\.length/);
+});
+
+test('Home section save action has one owner and opens the picker without saving immediately', () => {
+  assert.doesNotMatch(sessionManagerJs, /if \(action === 'save-current-window-session'\)/);
+  assert.match(runtimeJs, /if \(action === 'save-current-window-session'\) \{[\s\S]{0,300}actionEl\.closest\('#homePage'\)[\s\S]{0,100}openTabSessionPicker/);
 });
